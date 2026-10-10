@@ -12,6 +12,42 @@ import { isValidHttpUrl } from '../utils/helpers.js';
 import { isNativeApp, proxyBase } from '../utils/env.js';
 
 /**
+ * Liste des proxys publics de contournement CORS, essayés en dernier recours
+ * (uniquement quand aucun proxy local n'est configuré). Chaque entrée est
+ * une fonction (url) -> URL de requête. Ils sont notoirement instables :
+ * on les teste dans l'ordre et on passe au suivant en cas d'échec.
+ */
+const PUBLIC_CORS_PROXIES = [
+  { name: 'allorigins', build: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` },
+  { name: 'corsproxy.io', build: (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}` },
+  { name: 'codetabs', build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+];
+
+/**
+ * Récupère le HTML brut d'une page distante via un proxy public de secours.
+ * @returns {Promise<string>}
+ */
+async function fetchViaPublicProxy(valid, signal) {
+  let lastErr = null;
+  for (const p of PUBLIC_CORS_PROXIES) {
+    try {
+      const res = await fetch(p.build(valid), { signal, redirect: 'follow' });
+      if (!res.ok) throw new NetworkError(`Le relais public a répondu HTTP ${res.status}.`);
+      const text = await res.text();
+      // Un relais renvoie parfois du JSON ou une page d'erreur à la place du contenu.
+      if (text && text.length > 200 && !/^\s*[{[]/.test(text)) return text;
+      throw new NetworkError('Réponse invalide du relais public.');
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof NetworkError
+    ? lastErr
+    : new NetworkError('Les relais publics sont indisponibles actuellement.');
+}
+
+/**
  * Récupère le HTML d'une page distante.
  * @param {string} url
  * @param {{ referer?: string, signal?: AbortSignal }} opts
@@ -37,11 +73,18 @@ export async function fetchPage(url, opts = {}) {
       const html = await res.text();
       return { html, finalUrl: res.url || valid };
     } catch (err) {
-      if (err instanceof ValidationError || err instanceof NetworkError) throw err;
+      if (err instanceof ValidationError) throw err;
       if (err?.name === 'AbortError') throw err;
-      throw new NetworkError(
-        'Connexion refusée par le site distant (restriction CORS). Sur Android, lancez le proxy sur votre PC (node server.js) et indiquez son adresse IP dans Réglages › Proxy.'
-      );
+      // CORS bloqué par le site : on tente des relais publics avant d'abandonner.
+      try {
+        const html = await fetchViaPublicProxy(valid, signal);
+        return { html, finalUrl: valid };
+      } catch (relayErr) {
+        if (relayErr?.name === 'AbortError') throw relayErr;
+        throw new NetworkError(
+          `${relayErr?.message || 'Connexion impossible.'} (astuce : lancez « node server.js » sur un PC du même Wi‑Fi et indiquez son adresse IP dans Réglages › Proxy)`
+        );
+      }
     }
   }
 
@@ -83,19 +126,28 @@ export async function fetchDataJson(url, opts = {}) {
   const valid = isValidHttpUrl(url);
   if (!valid) throw new ValidationError('URL invalide.');
   const base = proxyBase();
+
+  // ---- Mode direct (APK sans proxy configuré) ----
   if (!base) {
-    // Mode direct : on récupère le JSON depuis l'URL distante elle-même.
-    let res;
     try {
-      res = await fetch(valid, { signal: opts.signal });
+      const res = await fetch(valid, { signal: opts.signal });
+      if (!res.ok) throw new NetworkError(`La source distante a répondu HTTP ${res.status}.`);
+      const data = await res.json().catch(() => null);
+      if (data === null) throw new NetworkError('Réponse invalide de la source distante.');
+      return data;
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
-      throw new NetworkError('Connexion impossible avec la source distante.');
+      // CORS bloqué : relais publics en secours.
+      try {
+        const text = await fetchViaPublicProxy(valid, opts.signal);
+        const data = JSON.parse(text);
+        return data;
+      } catch (relayErr) {
+        if (relayErr?.name === 'AbortError') throw relayErr;
+        throw err instanceof NetworkError ? err
+          : new NetworkError('Connexion impossible avec la source distante.');
+      }
     }
-    if (!res.ok) throw new NetworkError(`La source distante a répondu HTTP ${res.status}.`);
-    const data = await res.json().catch(() => null);
-    if (data === null) throw new NetworkError('Réponse invalide de la source distante.');
-    return data;
   }
   const params = new URLSearchParams({ url: valid });
   let res;

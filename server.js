@@ -172,6 +172,18 @@ function parseTargetUrl(raw) {
 // Routes API (proxy)
 // ---------------------------------------------------------------------------
 
+/** En-têtes anti-bot : beaucoup de sites de scan bloquent les requêtes sans UA navigateur. */
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'cross-site',
+  'Upgrade-Insecure-Requests': '1',
+};
+
 async function handleApiPage(req, res, query) {
   const target = parseTargetUrl(query.get('url'));
   if (!target) return apiError(res, 400, 'URL invalide ou protocole non supporté.');
@@ -181,16 +193,42 @@ async function handleApiPage(req, res, query) {
     const result = await fetchRemote(target, {
       timeout: 25000,
       maxBytes: 12 * 1024 * 1024,
-      headers: { Referer: referer, Accept: 'text/html,application/xhtml+xml,*/*' },
+      headers: { ...BROWSER_HEADERS, Referer: referer },
     });
     if (result.statusCode === 404) {
       return apiError(res, 404, 'Page introuvable sur le site distant (404).');
+    }
+    // 403 / 429 / 5xx : protection anti-bot ou indisponibilité du site distant.
+    if (result.statusCode === 403 || result.statusCode === 429) {
+      return apiError(
+        res, 502,
+        `Le site distant bloque les requêtes automatiques (HTTP ${result.statusCode}). Réessayez dans quelques instants.`
+      );
     }
     if (result.statusCode >= 400) {
       return apiError(res, 502, `Le site distant a répondu une erreur HTTP ${result.statusCode}.`);
     }
     const html = result.body.toString('utf8');
-    sendJson(res, 200, { success: true, url: target, finalUrl: target, html });
+    // Détection d'un interstitiel anti-bot (Cloudflare « Just a moment… », challenge, etc.)
+    if (/id="challenge-form"|cf_chl_|Just a moment|__cf_chl|Attention Required!/.test(html.slice(0, 60000))) {
+      return apiError(res, 503, 'Le site distant exige une vérification de sécurité (anti-bot) impossible à réaliser automatiquement. Réessayez plus tard ou depuis un autre chapitre/manga.');
+    }
+    // Réécriture des URLs relatives en absolues + injection d'une <base>.
+    // Le DOM parsé côté client n'a pas la base-URI du site distant : sans cela,
+    // images et liens internes seraient résolus contre l'origine de l'app.
+    try {
+      const origin = new URL(target).origin;
+      let out = html.replace(/(<(?:img|script|link)\b[^>]*?\s(?:src|href)\s*=\s*)(['"])(?!https?:|data:|#|\/\/)([^'"]+)\2/gi,
+        (m, attr, q, rel) => `${attr}${q}${origin}/${rel.replace(/^\.?\//, '')}${q}`);
+      if (/<head(\s[^>]*)?>/i.test(out)) {
+        out = out.replace(/<head(\s[^>]*)?>/i, `<head$1><base href="${target}">`);
+      } else {
+        out = `<base href="${target}">` + out;
+      }
+      sendJson(res, 200, { success: true, url: target, finalUrl: target, html: out });
+    } catch {
+      sendJson(res, 200, { success: true, url: target, finalUrl: target, html });
+    }
   } catch (err) {
     const msg =
       err.message === 'TIMEOUT'
@@ -211,7 +249,7 @@ async function handleApiImage(req, res, query) {
     const result = await fetchRemote(target, {
       timeout: 30000,
       maxBytes: 40 * 1024 * 1024,
-      headers: { Referer: referer, Accept: 'image/avif,image/webp,image/png,image/*,*/*' },
+      headers: { ...BROWSER_HEADERS, Referer: target, Accept: 'image/avif,image/webp,image/png,image/*,*/*' },
     });
     if (result.statusCode >= 400) {
       return apiError(res, 502, `Image inaccessible (HTTP ${result.statusCode}).`);
@@ -253,7 +291,7 @@ async function handleApiData(req, res, query) {
   const target = parseTargetUrl(query.get('url'));
   if (!target) return apiError(res, 400, 'URL invalide ou protocole non supporté.');
   try {
-    const result = await fetchRemote(target, { timeout: 20000, maxBytes: 8 * 1024 * 1024 });
+    const result = await fetchRemote(target, { timeout: 20000, maxBytes: 8 * 1024 * 1024, headers: BROWSER_HEADERS });
     if (result.statusCode >= 400) {
       return apiError(res, 502, `Le site distant a répondu une erreur HTTP ${result.statusCode}.`);
     }
