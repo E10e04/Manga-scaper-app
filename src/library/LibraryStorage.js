@@ -20,15 +20,32 @@ const mem = { mangas: new Map(), chapters: new Map(), images: new Map() };
 
 function openDb(name, stores) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let req;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        req?.result?.close();
+      } catch {
+        /* la requête peut ne pas encore avoir créé de base */
+      }
+      reject(new StorageError('Le stockage local ne répond pas. Vérifiez l’espace disponible puis relancez l’application.'));
+    }, 8000);
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn(value);
+    };
     if (typeof indexedDB === 'undefined') {
-      reject(new StorageError('IndexedDB n’est pas disponible dans cet environnement.'));
+      finish(reject, new StorageError('IndexedDB n’est pas disponible dans cet environnement.'));
       return;
     }
-    let req;
     try {
       req = indexedDB.open(name, DB_VERSION);
     } catch (err) {
-      reject(new StorageError('Impossible d’ouvrir le stockage local.', err));
+      finish(reject, new StorageError('Impossible d’ouvrir le stockage local.', err));
       return;
     }
     req.onupgradeneeded = (ev) => {
@@ -40,9 +57,15 @@ function openDb(name, stores) {
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(new StorageError('Le stockage local est inaccessible (IndexedDB).', req.error));
-    req.onblocked = () => reject(new StorageError('Stockage verrouillé par une autre fenêtre de l’application.'));
+    req.onsuccess = () => {
+      if (settled) {
+        req.result.close();
+        return;
+      }
+      finish(resolve, req.result);
+    };
+    req.onerror = () => finish(reject, new StorageError('Le stockage local est inaccessible (IndexedDB).', req.error));
+    req.onblocked = () => finish(reject, new StorageError('Stockage verrouillé par une autre fenêtre de l’application.'));
   });
 }
 
@@ -125,7 +148,9 @@ export async function initStorage() {
   // l'IndexedDB dans les environnements qui le prennent en charge.
   try {
     if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
-      await navigator.storage.persist();
+      // Ne bloque jamais le démarrage sur une implémentation Android qui
+      // laisserait cette promesse en attente.
+      Promise.resolve(navigator.storage.persist()).catch(() => {});
     }
   } catch {
     /* le stockage reste utilisable même si la demande n'est pas accordée */
