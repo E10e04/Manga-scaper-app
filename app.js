@@ -806,7 +806,9 @@ export function invalidateLibrary() {
 async function boot() {
   const res = await initStorage();
   if (res.memoryMode) {
-    toastWarning('Stockage persistant indisponible : vos données ne seront pas conservées après fermeture.', 6000);
+    toastWarning('Le catalogue ne peut pas être enregistré durablement sur cet appareil. Vérifiez l’espace et les paramètres de stockage.', 8000);
+  } else if (res.imageMemoryMode) {
+    toastWarning('Le catalogue est conservé, mais les images téléchargées ne le seront pas après fermeture.', 7000);
   }
 
   // Bouton global "+ Ajouter un manga"

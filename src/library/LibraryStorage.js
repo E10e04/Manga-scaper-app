@@ -14,7 +14,8 @@ const LIB_DB = 'MangaReaderLibrary';
 const IMG_DB = 'MangaReaderImages';
 const DB_VERSION = 1;
 
-let memoryMode = false;
+let libraryMemoryMode = false;
+let imageMemoryMode = false;
 const mem = { mangas: new Map(), chapters: new Map(), images: new Map() };
 
 function openDb(name, stores) {
@@ -55,7 +56,7 @@ function libDb() {
       { name: 'chapters', keyPath: 'id', indexes: [['mangaId', 'mangaId'], ['url', 'urlHash', true]] },
     ]).catch((err) => {
       console.warn('[storage] fallback mémoire :', err.message);
-      memoryMode = true;
+      libraryMemoryMode = true;
       libDbP = null;
       throw err;
     });
@@ -66,7 +67,7 @@ function libDb() {
 function imgDb() {
   if (!imgDbP) {
     imgDbP = openDb(IMG_DB, [{ name: 'images', keyPath: 'key' }]).catch((err) => {
-      memoryMode = true;
+      imageMemoryMode = true;
       imgDbP = null;
       throw err;
     });
@@ -110,25 +111,33 @@ function requestToPromise(req) {
 // ---------------------------------------------------------------------------
 
 export function isMemoryMode() {
-  return memoryMode;
+  return libraryMemoryMode;
 }
 
-/** Initialise le stockage ; bascule en mode mémoire si IndexedDB échoue. */
+/** Initialise les deux bases sans laisser une panne d'images rendre le catalogue volatile. */
 export async function initStorage() {
+  const [libraryResult, imageResult] = await Promise.allSettled([libDb(), imgDb()]);
+  libraryMemoryMode = libraryResult.status === 'rejected';
+  imageMemoryMode = imageResult.status === 'rejected';
+
+  // Les WebView Android récents accordent généralement ce droit d'office aux
+  // applications installées. Le demander évite l'éviction automatique de
+  // l'IndexedDB dans les environnements qui le prennent en charge.
   try {
-    await libDb();
-    await imgDb();
-    return { ok: true, memoryMode: false };
+    if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+      await navigator.storage.persist();
+    }
   } catch {
-    memoryMode = true;
-    return { ok: true, memoryMode: true }; // l'app reste utilisable (données volatiles)
+    /* le stockage reste utilisable même si la demande n'est pas accordée */
   }
+
+  return { ok: true, memoryMode: libraryMemoryMode, imageMemoryMode };
 }
 
 // --- Mangas ---
 
 export async function putManga(manga) {
-  if (memoryMode) {
+  if (libraryMemoryMode) {
     mem.mangas.set(manga.id, manga);
     return manga;
   }
@@ -138,21 +147,21 @@ export async function putManga(manga) {
 }
 
 export async function getManga(id) {
-  if (memoryMode) return mem.mangas.get(id) || null;
+  if (libraryMemoryMode) return mem.mangas.get(id) || null;
   const db = await libDb();
   const t = db.transaction('mangas', 'readonly');
   return requestToPromise(t.objectStore('mangas').get(id)).catch(() => null);
 }
 
 export async function getAllMangas() {
-  if (memoryMode) return Array.from(mem.mangas.values());
+  if (libraryMemoryMode) return Array.from(mem.mangas.values());
   const db = await libDb();
   const t = db.transaction('mangas', 'readonly');
   return requestToPromise(t.objectStore('mangas').getAll());
 }
 
 export async function deleteManga(id) {
-  if (memoryMode) {
+  if (libraryMemoryMode) {
     mem.mangas.delete(id);
     for (const [cid, c] of mem.chapters) if (c.mangaId === id) mem.chapters.delete(cid);
     return;
@@ -167,7 +176,7 @@ export async function deleteManga(id) {
 
 export async function putChapter(chapter) {
   const record = { ...chapter, urlHash: chapter.url };
-  if (memoryMode) {
+  if (libraryMemoryMode) {
     mem.chapters.set(chapter.id, record);
     return record;
   }
@@ -186,7 +195,7 @@ export async function putChapter(chapter) {
 }
 
 export async function putChaptersBulk(chapters) {
-  if (memoryMode) {
+  if (libraryMemoryMode) {
     chapters.forEach((c) => mem.chapters.set(c.id, { ...c, urlHash: c.url }));
     return;
   }
@@ -202,14 +211,14 @@ export async function putChaptersBulk(chapters) {
 }
 
 export async function getChapter(id) {
-  if (memoryMode) return mem.chapters.get(id) || null;
+  if (libraryMemoryMode) return mem.chapters.get(id) || null;
   const db = await libDb();
   const t = db.transaction('chapters', 'readonly');
   return requestToPromise(t.objectStore('chapters').get(id)).catch(() => null);
 }
 
 export async function findChapterByUrl(url) {
-  if (memoryMode) {
+  if (libraryMemoryMode) {
     for (const c of mem.chapters.values()) if (c.url === url) return c;
     return null;
   }
@@ -219,20 +228,19 @@ export async function findChapterByUrl(url) {
 }
 
 export async function getChaptersForManga(mangaId) {
-  if (memoryMode) return Array.from(mem.chapters.values()).filter((c) => c.mangaId === mangaId);
+  if (libraryMemoryMode) return Array.from(mem.chapters.values()).filter((c) => c.mangaId === mangaId);
   const db = await libDb();
   const t = db.transaction('chapters', 'readonly');
   return requestToPromise(t.objectStore('chapters').index('mangaId').getAll(mangaId));
 }
 
 export async function deleteChapter(id, mangaId, alsoImages = true) {
-  if (memoryMode) {
+  if (libraryMemoryMode) {
     mem.chapters.delete(id);
-    if (alsoImages) for (const k of Array.from(mem.images.keys())) if (k.startsWith(`${id}/`)) mem.images.delete(k);
-    return;
+  } else {
+    const db = await libDb();
+    await tx(db, 'chapters', 'readwrite', (s) => s.delete(id));
   }
-  const db = await libDb();
-  await tx(db, 'chapters', 'readwrite', (s) => s.delete(id));
   if (alsoImages) await deleteChapterImages(id);
 }
 
@@ -240,7 +248,7 @@ export async function deleteChapter(id, mangaId, alsoImages = true) {
 
 export async function putImage(chapterId, pageNumber, blob, meta = {}) {
   const key = `${chapterId}/${pageNumber}`;
-  if (memoryMode) {
+  if (imageMemoryMode) {
     mem.images.set(key, { key, chapterId, pageNumber, blob, ...meta });
     return;
   }
@@ -250,14 +258,14 @@ export async function putImage(chapterId, pageNumber, blob, meta = {}) {
 
 export async function getImage(chapterId, pageNumber) {
   const key = `${chapterId}/${pageNumber}`;
-  if (memoryMode) return mem.images.get(key) || null;
+  if (imageMemoryMode) return mem.images.get(key) || null;
   const db = await imgDb();
   const t = db.transaction('images', 'readonly');
   return requestToPromise(t.objectStore('images').get(key)).catch(() => null);
 }
 
 export async function getChapterImageRecords(chapterId) {
-  if (memoryMode) {
+  if (imageMemoryMode) {
     return Array.from(mem.images.values())
       .filter((r) => r.chapterId === chapterId)
       .sort((a, b) => a.pageNumber - b.pageNumber);
@@ -280,7 +288,7 @@ export async function getChapterImageRecords(chapterId) {
 }
 
 export async function deleteChapterImages(chapterId) {
-  if (memoryMode) {
+  if (imageMemoryMode) {
     for (const k of Array.from(mem.images.keys())) if (k.startsWith(`${chapterId}/`)) mem.images.delete(k);
     return;
   }
@@ -304,7 +312,7 @@ export async function deleteChapterImages(chapterId) {
 /** Estimation du stockage utilisé ({ downloads, origin }) en octets. */
 export async function estimateUsage() {
   let downloads = 0;
-  if (memoryMode) {
+  if (imageMemoryMode) {
     for (const r of mem.images.values()) downloads += r.blob?.size || 0;
   } else {
     try {
@@ -353,7 +361,7 @@ async function allImageSizes() {
 
 /** Vide toute la base images (nettoyage de cache, avec confirmation côté UI). */
 export async function clearAllImages() {
-  if (memoryMode) {
+  if (imageMemoryMode) {
     mem.images.clear();
     return;
   }

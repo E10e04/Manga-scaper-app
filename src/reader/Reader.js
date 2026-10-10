@@ -18,8 +18,11 @@ import { humanizeError } from '../utils/errors.js';
 import { escapeHtml } from '../utils/helpers.js';
 import { toast, toastError, toastSuccess, toastWarning } from '../ui/Toast.js';
 import { navigate } from '../ui/Router.js';
+import { registerPlugin } from '@capacitor/core';
+import { isNativeApp } from '../utils/env.js';
 
 const PREFETCH = 2; // pages préchargées en avance, au maximum
+const ImmersiveMode = registerPlugin('ImmersiveMode');
 
 export class Reader {
   /**
@@ -33,6 +36,7 @@ export class Reader {
     this.manga = null;
     this.pages = []; // [{pageNumber, imageUrl}]
     this.total = 0;
+    this.fullscreenActive = false;
     this.observer = null;
     this.hideTimer = null;
     this.scrollUpTimer = null;
@@ -154,6 +158,7 @@ export class Reader {
       this.renderSkeletons();
       this.setupObserver();
       this.applySettings();
+      if (getSettings().fullscreen) void this.toggleFullscreen(true);
 
       // Siblings
       const siblings = await this.getSiblings();
@@ -558,13 +563,22 @@ export class Reader {
     else this.toggleUi(true);
   }
 
-  toggleFullscreen(force) {
-    const want = force ?? !document.fullscreenElement;
+  async toggleFullscreen(force) {
+    const want = force ?? !this.fullscreenActive;
+    this.fullscreenActive = want;
+    if (isNativeApp()) {
+      try {
+        await ImmersiveMode.setEnabled({ enabled: want });
+      } catch {
+        if (want) toastWarning('Le mode immersif Android n’est pas disponible.');
+      }
+      return;
+    }
     try {
-      if (want) document.documentElement.requestFullscreen?.();
-      else document.exitFullscreen?.();
+      if (want && !document.fullscreenElement) await document.documentElement.requestFullscreen?.();
+      else if (!want && document.fullscreenElement) await document.exitFullscreen?.();
     } catch {
-      toastWarning('Le mode plein écran n’est pas disponible ici.');
+      if (want) toastWarning('Le mode plein écran n’est pas disponible ici.');
     }
   }
 
@@ -576,6 +590,7 @@ export class Reader {
 
   destroy() {
     this.destroyed = true;
+    void this.toggleFullscreen(false);
     this.recordPosition();
     clearTimeout(this.hideTimer);
     clearTimeout(this.scrollUpTimer);
