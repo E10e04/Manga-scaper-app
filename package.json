@@ -1,0 +1,27 @@
+{
+  "name": "manga-reader",
+  "version": "1.0.0",
+  "description": "Manga Reader — bibliothèque, lecteur et téléchargement hors ligne de mangas (Web / PWA / Android via Capacitor)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --dev",
+    "test": "node scripts/test.mjs",
+    "build": "node scripts/build.mjs",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:add": "npx cap add android",
+    "cap:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}

@@ -1,0 +1,23 @@
+{
+  "appId": "com.mangareader.app",
+  "appName": "Manga Reader",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": ["*"]
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#0d0f16",
+      "showSpinner": true,
+      "spinnerColor": "#e5533d"
+    }
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

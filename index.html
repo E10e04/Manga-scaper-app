@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Manga Reader</title>
+  <meta name="description" content="Manga Reader — bibliothèque, lecteur immersif et lecture hors ligne de mangas." />
+  <meta name="theme-color" content="#0d0f16" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="/assets/icons/favicon.svg" />
+  <link rel="apple-touch-icon" href="/assets/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <!-- Navigation latérale (desktop / tablette large) -->
+    <aside class="sidebar" aria-label="Navigation principale">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <span class="brand__name">Manga<span>Reader</span></span>
+      </div>
+
+      <button class="btn btn--primary btn--wide sidebar__add" data-open-add="1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Ajouter un manga
+      </button>
+
+      <nav class="nav" id="mainNav">
+        <a class="nav__item" href="#/accueil" data-nav="/accueil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+          <span>Accueil</span>
+        </a>
+        <a class="nav__item" href="#/bibliotheque" data-nav="/bibliotheque">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><path d="m17.6 5.3 3.1 15.2-4.9-1"/></svg>
+          <span>Bibliothèque</span>
+        </a>
+        <a class="nav__item" href="#/telechargements" data-nav="/telechargements">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></svg>
+          <span>Téléchargements</span>
+          <i class="nav__dot" id="navDlDot" hidden aria-hidden="true"></i>
+        </a>
+        <a class="nav__item" href="#/historique" data-nav="/historique">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/></svg>
+          <span>Historique</span>
+        </a>
+        <a class="nav__item nav__item--muted" href="#/stockage" data-nav="/stockage">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+          <span>Stockage</span>
+        </a>
+      </nav>
+
+      <footer class="sidebar__foot">
+        <label class="search search--side">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="globalSearch" placeholder="Rechercher…" aria-label="Recherche globale" />
+        </label>
+      </footer>
+    </aside>
+
+    <!-- Contenu principal -->
+    <main class="main" id="view" role="main" aria-live="polite">
+      <!-- Squelette initial : la vraie vue remplace ce contenu au boot -->
+      <div class="page">
+        <div class="sk sk--title" style="max-width:240px"></div>
+        <div class="grid" style="margin-top:24px">
+          <div class="card card--skeleton"><div class="cover-wrap"><div class="sk sk--cover"></div></div><div class="card__body"><div class="sk sk--title"></div><div class="sk sk--line"></div></div></div>
+          <div class="card card--skeleton"><div class="cover-wrap"><div class="sk sk--cover"></div></div><div class="card__body"><div class="sk sk--title"></div><div class="sk sk--line"></div></div></div>
+          <div class="card card--skeleton"><div class="cover-wrap"><div class="sk sk--cover"></div></div><div class="card__body"><div class="sk sk--title"></div><div class="sk sk--line"></div></div></div>
+          <div class="card card--skeleton"><div class="cover-wrap"><div class="sk sk--cover"></div></div><div class="card__body"><div class="sk sk--title"></div><div class="sk sk--line"></div></div></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Barre inférieure mobile (navigation pouce) -->
+  <nav class="tabbar" aria-label="Navigation mobile">
+    <a class="tabbar__item" href="#/accueil" data-nav="/accueil">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+      <span>Accueil</span>
+    </a>
+    <a class="tabbar__item" href="#/bibliotheque" data-nav="/bibliotheque">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><path d="m17.6 5.3 3.1 15.2-4.9-1"/></svg>
+      <span>Bib.</span>
+    </a>
+    <button class="tabbar__fab" data-open-add="1" aria-label="Ajouter un manga">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <a class="tabbar__item" href="#/telechargements" data-nav="/telechargements">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></svg>
+      <span>Offline</span>
+      <i class="nav__dot" hidden aria-hidden="true"></i>
+    </a>
+    <a class="tabbar__item" href="#/historique" data-nav="/historique">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/></svg>
+      <span>Histo.</span>
+    </a>
+  </nav>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
