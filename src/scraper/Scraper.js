@@ -10,6 +10,7 @@
 import { NetworkError, ValidationError } from '../utils/errors.js';
 import { isValidHttpUrl } from '../utils/helpers.js';
 import { isNativeApp, proxyBase } from '../utils/env.js';
+import { fetchWithRetry, dedupe, isLikelyHtml, limitGlobal } from '../utils/net.js';
 
 /**
  * Liste des proxys publics de contournement CORS, essayés en dernier recours
@@ -25,17 +26,25 @@ const PUBLIC_CORS_PROXIES = [
 
 /**
  * Récupère le HTML brut d'une page distante via un proxy public de secours.
+ * Utilise fetchWithRetry (tentatives limitées + backoff) et rejette toute
+ * réponse qui n'est pas du contenu exploitable (page d'erreur du relais…).
  * @returns {Promise<string>}
  */
 async function fetchViaPublicProxy(valid, signal) {
   let lastErr = null;
   for (const p of PUBLIC_CORS_PROXIES) {
     try {
-      const res = await fetch(p.build(valid), { signal, redirect: 'follow' });
+      const res = await fetchWithRetry(p.build(valid), {
+        signal,
+        redirect: 'follow',
+        attempts: 2,
+        timeoutMs: 25000,
+        baseDelayMs: 600,
+      });
       if (!res.ok) throw new NetworkError(`Le relais public a répondu HTTP ${res.status}.`);
       const text = await res.text();
-      // Un relais renvoie parfois du JSON ou une page d'erreur à la place du contenu.
-      if (text && text.length > 200 && !/^\s*[{[]/.test(text)) return text;
+      // Un relais renvoie parfois une page d'erreur HTML ou un corps vide.
+      if (text && text.length > 200 && !isLikelyHtml(text.slice(0, 300))) return text;
       throw new NetworkError('Réponse invalide du relais public.');
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
@@ -45,6 +54,28 @@ async function fetchViaPublicProxy(valid, signal) {
   throw lastErr instanceof NetworkError
     ? lastErr
     : new NetworkError('Les relais publics sont indisponibles actuellement.');
+}
+
+/**
+ * Lit la réponse JSON structurée du proxy local (/api/*).
+ * Cause racine historique de « Unexpected token '<' » : lorsque l'URL du
+ * proxy pointe vers un serveur qui ne rend PAS l'API (mauvaise IP, port
+ * erroné, serveur éteint servant une SPA…), la réponse est du HTML.
+ * On le détecte ICI et on remplace par un message humain + diagnostic.
+ * @returns {Promise<object|null>} objet JSON, ou null si non-JSON
+ */
+async function readProxyJson(res, text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    if (isLikelyHtml(text)) {
+      throw new NetworkError(
+        'L’adresse du proxy local ne fournit pas l’API attendue (réponse HTML au lieu de JSON). ' +
+        'Vérifiez que « node server.js » tourne à cette adresse et que le port est correct (ex. http://192.168.1.10:8080).'
+      );
+    }
+    return null;
+  }
 }
 
 /**
@@ -63,12 +94,24 @@ export async function fetchPage(url, opts = {}) {
     throw new NetworkError('Fonction réseau indisponible dans cet environnement.');
   }
 
+  // Déduplication : deux demandes simultanées pour la même page = une requête.
+  const key = `page:${valid}`;
+  return dedupe(key, () => fetchPageInner(valid, referer, signal));
+}
+
+async function fetchPageInner(valid, referer, signal) {
   const base = proxyBase();
 
   // ---- Mode direct (APK sans proxy configuré) ----
   if (!base) {
     try {
-      const res = await fetch(valid, { signal, redirect: 'follow' });
+      const res = await fetchWithRetry(valid, {
+        signal,
+        redirect: 'follow',
+        attempts: 2,
+        timeoutMs: 25000,
+        headers: referer ? { Referer: referer } : undefined,
+      });
       if (!res.ok) throw new NetworkError(`Le site distant a répondu HTTP ${res.status}.`);
       const html = await res.text();
       return { html, finalUrl: res.url || valid };
@@ -93,7 +136,11 @@ export async function fetchPage(url, opts = {}) {
   try {
     const params = new URLSearchParams({ url: valid });
     if (referer) params.set('referer', referer);
-    res = await fetch(`${base}/api/page?${params}`, { signal });
+    res = await fetchWithRetry(`${base}/api/page?${params}`, {
+      signal,
+      attempts: 2,
+      timeoutMs: 30000,
+    });
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     throw new NetworkError('Impossible de contacter le proxy local. Vérifiez que server.js tourne et que son adresse est correcte.');
@@ -102,8 +149,7 @@ export async function fetchPage(url, opts = {}) {
   // Le proxy doit répondre en JSON ; s'il renvoie du HTML, c'est qu'il ne
   // tourne pas à cette adresse (ex. page 404 d'un autre serveur).
   const text = await res.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch { /* réponse non-JSON */ }
+  const json = await readProxyJson(res, text);
 
   if (json && json.success && typeof json.html === 'string') {
     return { html: json.html, finalUrl: json.finalUrl || valid };
@@ -130,7 +176,7 @@ export async function fetchDataJson(url, opts = {}) {
   // ---- Mode direct (APK sans proxy configuré) ----
   if (!base) {
     try {
-      const res = await fetch(valid, { signal: opts.signal });
+      const res = await fetchWithRetry(valid, { signal: opts.signal, attempts: 2, timeoutMs: 20000 });
       if (!res.ok) throw new NetworkError(`La source distante a répondu HTTP ${res.status}.`);
       const data = await res.json().catch(() => null);
       if (data === null) throw new NetworkError('Réponse invalide de la source distante.');
@@ -152,14 +198,17 @@ export async function fetchDataJson(url, opts = {}) {
   const params = new URLSearchParams({ url: valid });
   let res;
   try {
-    res = await fetch(`${base}/api/data?${params}`, { signal: opts.signal });
+    res = await fetchWithRetry(`${base}/api/data?${params}`, {
+      signal: opts.signal,
+      attempts: 2,
+      timeoutMs: 25000,
+    });
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     throw new NetworkError('Connexion impossible avec le serveur local.');
   }
   const text = await res.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  const json = await readProxyJson(res, text);
   if (json && json.success && json.data !== undefined) return json.data;
   throw new NetworkError(json?.error || (json ? 'Impossible de récupérer les données distantes.' : `Réponse invalide du proxy (HTTP ${res.status}).`));
 }
@@ -183,29 +232,44 @@ export function proxiedImageUrl(imageUrl, referer) {
 
 /**
  * Télécharge une image et retourne son Blob (via proxy ou direct).
+ * - concurrence limitée globalement (au plus 5 requêtes simultanées) ;
+ * - tentatives limitées avec backoff sur erreurs temporaires ;
+ * - validation du type MIME ET des octets magiques (image corrompue/HTML).
  */
 export async function fetchImageBlob(imageUrl, referer, signal) {
   const target = proxiedImageUrl(imageUrl, referer);
   if (!target) throw new ValidationError('URL d’image invalide.');
-  let res;
-  try {
-    res = await fetch(target, { signal });
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err;
-    throw new NetworkError('Téléchargement de l’image interrompu.');
-  }
-  if (!res.ok) {
-    throw new NetworkError(`Image inaccessible (HTTP ${res.status}).`);
-  }
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('text/html')) {
-    throw new NetworkError('L’image n’a pas pu être chargée (le serveur a renvoyé une page web).');
-  }
-  const blob = await res.blob();
-  if (!blob || blob.size < 64) {
-    throw new NetworkError('L’image téléchargée semble vide ou corrompue.');
-  }
-  return blob;
+  return limitGlobal(async () => {
+    let res;
+    try {
+      res = await fetchWithRetry(target, { signal, attempts: 3, timeoutMs: 30000, baseDelayMs: 700 });
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      throw new NetworkError('Téléchargement de l’image interrompu.');
+    }
+    if (!res.ok) {
+      throw new NetworkError(`Image inaccessible (HTTP ${res.status}).`);
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      throw new NetworkError('L’image n’a pas pu être chargée (le serveur a renvoyé une page web).');
+    }
+    const blob = await res.blob();
+    if (!blob || blob.size < 64) {
+      throw new NetworkError('L’image téléchargée semble vide ou corrompue.');
+    }
+    // Validation des octets magiques (uniquement si le blob est complet).
+    try {
+      const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+      if (head.length >= 12 && !looksLikeImage(head)) {
+        throw new NetworkError('Le fichier récupéré n’est pas une image valide.');
+      }
+    } catch (err) {
+      if (err instanceof NetworkError) throw err;
+      /* arrayBuffer indisponible : on garde la validation par taille/MIME */
+    }
+    return blob;
+  });
 }
 
 /** Parse du HTML de façon inert (aucun script exécuté). */

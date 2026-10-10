@@ -102,7 +102,10 @@ function fetchRemote(url, opts = {}) {
             ...headers,
           },
           timeout,
-          rejectUnauthorized: false, // certains sites de scan ont des certs imparfaits
+          // Certificats : validation stricte par défaut. En mode --dev, on
+          // accepte les certs auto-signés pour tester contre des serveurs
+          // locaux ; jamais en production.
+          rejectUnauthorized: !DEV,
         },
         (response) => {
           const { statusCode = 0, headers: rHeaders = {} } = response;
@@ -156,12 +159,40 @@ function fetchRemote(url, opts = {}) {
   });
 }
 
-/** Valide qu'une URL est récupérable par le proxy (http/https uniquement). */
+/**
+ * Valide qu'une URL est récupérable par le proxy.
+ * Sécurité (anti-SSRF) : http/https uniquement + blocage des adresses
+ * locales, privées et réservées — le proxy ne doit pas servir à solliciter
+ * arbitrairement n'importe quelle machine du réseau de l'utilisateur.
+ * Exception en mode --dev : localhost est autorisé pour tester l'API
+ * (ex. tests automatisés contre un serveur local).
+ */
+const PRIVATE_NETS = [
+  // IPv4 réservées / privées
+  /^10\./, /^127\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./,
+  /^0\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT 100.64/10
+];
+
+function isPrivateHost(hostname) {
+  const h = hostname.toLowerCase().replace(/^\[(?:::1|0:0:0:0:0:0:0:1)\]$/, '::1');
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1') return true;
+  if (/^0+$/.test(h.replace(/\./g, ''))) return true; // 0.0.0.0 etc.
+  // IPv6 privées/réservées (ULA fc00::/7, link-local fe80::/10, v4-mapped)
+  if (/^(?:f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/.test(h)) return true;
+  if (h.startsWith('::ffff:') || h.includes('.')) {
+    // forme IPv4 (avec ou sans mappage ::ffff:a.b.c.d)
+    const v4 = h.includes(':') ? h.split(':').pop() : h;
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(v4) && PRIVATE_NETS.some((re) => re.test(v4))) return true;
+  }
+  return false;
+}
+
 function parseTargetUrl(raw) {
   if (!raw || typeof raw !== 'string') return null;
   try {
     const u = new URL(raw);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (isPrivateHost(u.hostname) && !DEV) return null;
     return u.toString();
   } catch {
     return null;
@@ -198,12 +229,20 @@ async function handleApiPage(req, res, query) {
     if (result.statusCode === 404) {
       return apiError(res, 404, 'Page introuvable sur le site distant (404).');
     }
-    // 403 / 429 / 5xx : protection anti-bot ou indisponibilité du site distant.
-    if (result.statusCode === 403 || result.statusCode === 429) {
+    // 403 / 429 : protection anti-bot ou limitation de débit du site distant.
+    if (result.statusCode === 403) {
       return apiError(
         res, 502,
-        `Le site distant bloque les requêtes automatiques (HTTP ${result.statusCode}). Réessayez dans quelques instants.`
+        'Le site distant refuse les requêtes automatiques (HTTP 403). Le proxy ne peut pas contourner un blocage actif : réessayez plus tard.'
       );
+    }
+    if (result.statusCode === 429) {
+      const retryAfter = result.headers['retry-after'];
+      return sendJson(res, 429, {
+        success: false,
+        error: `Le site distant limite le débit des requêtes (HTTP 429). Patientez${retryAfter ? ` environ ${retryAfter} s` : ' quelques instants'} puis réessayez.`,
+        retryAfter: retryAfter || null,
+      });
     }
     if (result.statusCode >= 400) {
       return apiError(res, 502, `Le site distant a répondu une erreur HTTP ${result.statusCode}.`);
