@@ -1,14 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Manga Reader">
-  <rect width="512" height="512" rx="112" fill="#0b0d13"/>
-  <g fill="none" stroke="#f4eee7" stroke-linecap="round" opacity=".72">
-    <path d="M49 164 158 193M28 230l105 15M42 310l100-8M462 165 354 194M484 230l-105 15M469 310l-99-8" stroke-width="12"/>
-    <path d="m90 104 79 63m253-63-79 63M90 408l79-62m253 62-79-62" stroke-width="8" opacity=".55"/>
-  </g>
-  <circle cx="352" cy="157" r="78" fill="#e5533d"/>
-  <path d="M113 157c40-19 91-16 143 13 52-29 103-32 143-13v225c-46-22-94-21-143 10-49-31-97-32-143-10z" fill="#f4eee7" stroke="#fffaf4" stroke-width="9" stroke-linejoin="round"/>
-  <path d="M256 170v222" stroke="#161820" stroke-width="12" stroke-linecap="round"/>
-  <path d="M133 190c36-12 73-7 105 9v152c-34-17-70-20-105-10z" fill="#fffaf4"/>
-  <path d="M274 199c31-16 68-21 105-9v151c-35-10-71-7-105 10z" fill="#fffaf4"/>
-  <path d="m291 241 54-27-18 42 32-12-66 75 15-48-32 15z" fill="#e5533d"/>
-  <path d="M155 233h54M155 254h42M155 275h50M155 296h35" stroke="#171922" stroke-width="9" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="読 Manga Reader">
+  <rect width="512" height="512" rx="112" fill="#ff5c3a"/>
+  <text x="256" y="273" text-anchor="middle" dominant-baseline="middle"
+        fill="#fffaf4" font-family="'Noto Sans CJK JP', 'Hiragino Sans', 'Yu Gothic', sans-serif"
+        font-size="250" font-weight="800">読</text>
+  <path d="M164 378h184" fill="none" stroke="#fffaf4" stroke-linecap="round" stroke-width="12" opacity=".8"/>
 </svg>
