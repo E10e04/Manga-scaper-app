@@ -4,13 +4,13 @@
  * Deux modes :
  * - Web / proxy configuré : requêtes via /api/page du proxy Node (server.js),
  *   qui contourne les restrictions CORS.
- * - APK sans proxy : requêtes DIRECTES depuis le WebView. Si le site distant
- *   bloque CORS, une erreur claire et actionnable est affichée.
+ * - APK sans proxy : fetch/XHR passent par CapacitorHttp natif, donc sans
+ *   dépendance CORS au WebView et sans serveur à lancer sur un ordinateur.
  */
 import { NetworkError, ValidationError } from '../utils/errors.js';
 import { isValidHttpUrl } from '../utils/helpers.js';
 import { isNativeApp, proxyBase } from '../utils/env.js';
-import { fetchWithRetry, dedupe, isLikelyHtml, limitGlobal } from '../utils/net.js';
+import { fetchWithRetry, dedupe, isLikelyHtml, looksLikeImage, limitGlobal } from '../utils/net.js';
 
 /**
  * Liste des proxys publics de contournement CORS, essayés en dernier recours
@@ -30,7 +30,7 @@ const PUBLIC_CORS_PROXIES = [
  * réponse qui n'est pas du contenu exploitable (page d'erreur du relais…).
  * @returns {Promise<string>}
  */
-async function fetchViaPublicProxy(valid, signal) {
+async function fetchViaPublicProxy(valid, signal, expected = 'html') {
   let lastErr = null;
   for (const p of PUBLIC_CORS_PROXIES) {
     try {
@@ -43,8 +43,15 @@ async function fetchViaPublicProxy(valid, signal) {
       });
       if (!res.ok) throw new NetworkError(`Le relais public a répondu HTTP ${res.status}.`);
       const text = await res.text();
-      // Un relais renvoie parfois une page d'erreur HTML ou un corps vide.
-      if (text && text.length > 200 && !isLikelyHtml(text.slice(0, 300))) return text;
+      // Les relais renvoient souvent directement le HTML de la source. Le
+      // rejetait auparavant à tort, ce qui rendait le secours inutilisable.
+      // On refuse les pages d'erreur/challenge et on valide le format attendu.
+      const sample = text.trimStart();
+      const challenge = /id=["']challenge-form|cf_chl_|just a moment|__cf_chl|attention required!/i.test(sample.slice(0, 60000));
+      const validFormat = expected === 'json'
+        ? /^[\[{]/.test(sample)
+        : isLikelyHtml(sample);
+      if (text.length > 200 && validFormat && !challenge) return text;
       throw new NetworkError('Réponse invalide du relais public.');
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
@@ -112,15 +119,23 @@ async function fetchPageInner(valid, referer, signal) {
         timeoutMs: 25000,
         headers: referer ? { Referer: referer } : undefined,
       });
-      if (!res.ok) throw new NetworkError(`Le site distant a répondu HTTP ${res.status}.`);
+      if (!res.ok) {
+        if (res.status === 403) throw new NetworkError('Le site distant refuse la requête (HTTP 403). Il peut exiger une vérification anti-bot que l’application ne peut pas automatiser.');
+        if (res.status === 429) throw new NetworkError('Le site distant limite les requêtes (HTTP 429). Patientez avant de réessayer.');
+        throw new NetworkError(`Le site distant a répondu HTTP ${res.status}.`);
+      }
       const html = await res.text();
+      if (/id=["']challenge-form|cf_chl_|just a moment|__cf_chl|attention required!/i.test(html.slice(0, 60000))) {
+        throw new NetworkError('Le site distant exige une vérification anti-bot que l’application ne peut pas automatiser.');
+      }
       return { html, finalUrl: res.url || valid };
     } catch (err) {
       if (err instanceof ValidationError) throw err;
       if (err?.name === 'AbortError') throw err;
+      if (/refuse la requête|limite les requêtes|vérification anti-bot/i.test(err?.message || '')) throw err;
       // CORS bloqué par le site : on tente des relais publics avant d'abandonner.
       try {
-        const html = await fetchViaPublicProxy(valid, signal);
+        const html = await fetchViaPublicProxy(valid, signal, 'html');
         return { html, finalUrl: valid };
       } catch (relayErr) {
         if (relayErr?.name === 'AbortError') throw relayErr;
@@ -185,7 +200,7 @@ export async function fetchDataJson(url, opts = {}) {
       if (err?.name === 'AbortError') throw err;
       // CORS bloqué : relais publics en secours.
       try {
-        const text = await fetchViaPublicProxy(valid, opts.signal);
+        const text = await fetchViaPublicProxy(valid, opts.signal, 'json');
         const data = JSON.parse(text);
         return data;
       } catch (relayErr) {
@@ -239,10 +254,19 @@ export function proxiedImageUrl(imageUrl, referer) {
 export async function fetchImageBlob(imageUrl, referer, signal) {
   const target = proxiedImageUrl(imageUrl, referer);
   if (!target) throw new ValidationError('URL d’image invalide.');
+  const nativeReferer = !proxyBase() && isNativeApp() && referer
+    ? { Referer: referer }
+    : undefined;
   return limitGlobal(async () => {
     let res;
     try {
-      res = await fetchWithRetry(target, { signal, attempts: 3, timeoutMs: 30000, baseDelayMs: 700 });
+      res = await fetchWithRetry(target, {
+        signal,
+        attempts: 3,
+        timeoutMs: 30000,
+        baseDelayMs: 700,
+        headers: nativeReferer,
+      });
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
       throw new NetworkError('Téléchargement de l’image interrompu.');

@@ -10,7 +10,7 @@
  */
 import * as store from '../library/LibraryStorage.js';
 import { findAdapter, getGenericAdapter } from '../adapters/index.js';
-import { saveChapterPages, resolvePageUrl, releaseChapterUrls } from '../downloads/OfflineStorage.js';
+import { saveChapterPages, resolvePageUrl, releasePageUrl, releaseChapterUrls } from '../downloads/OfflineStorage.js';
 import { enqueueChapter } from '../downloads/DownloadManager.js';
 import { getSettings, setSetting } from './ReaderSettings.js';
 import { saveProgress, getProgress } from '../library/ReadingProgress.js';
@@ -236,6 +236,7 @@ export class Reader {
     if (slot.__img) {
       slot.__img.removeAttribute('src');
     }
+    releasePageUrl(this.chapter.id, Number(slot.dataset.page));
     slot.innerHTML = '';
     slot.__mounted = false;
     slot.style.minHeight = '60vh';

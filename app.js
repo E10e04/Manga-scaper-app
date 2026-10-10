@@ -422,24 +422,24 @@ async function viewStorage() {
 
 async function viewSettings() {
   const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-  const current = (localStorage.getItem('mr_proxy_url') || '').trim();
+  const current = native ? '' : (localStorage.getItem('mr_proxy_url') || '').trim();
   $app.innerHTML = `
   <div class="page">
     <header class="page-head"><h1 class="page-title">Réglages</h1></header>
     <section>
-      <h2 class="section-title">${icon('download')} Proxy réseau${native ? '' : ' (optionnel)'}</h2>
+      <h2 class="section-title">${icon('download')} ${native ? 'Réseau de l’application' : 'Proxy réseau (optionnel)'}</h2>
       <p class="page-sub" style="margin-bottom:14px">
         ${native
-          ? 'L’application Android ne peut pas lancer de serveur local. Pour contourner les restrictions CORS des sites de scan, lancez <code>node server.js</code> sur un ordinateur du même réseau Wi‑Fi et indiquez son adresse ici (ex. <code>http://192.168.1.10:8080</code>).'
+          ? 'Android utilise son accès réseau natif. Aucun ordinateur, serveur externe ou réglage de proxy n’est nécessaire.'
           : 'Sur le Web, le proxy est intégré au serveur local (même origine). Vous pouvez indiquer une autre adresse si l’application est servie autrement.'}
       </p>
-      <form id="proxyForm" class="proxy-form">
+      ${native ? '' : `<form id="proxyForm" class="proxy-form">
         <input type="url" id="proxyInput" class="input" inputmode="url" autocomplete="off" spellcheck="false"
-               placeholder="${native ? 'http://192.168.1.10:8080' : '(vide = même origine)'}" value="${escapeHtml(current)}" aria-label="Adresse du proxy" />
+               placeholder="(vide = même origine)" value="${escapeHtml(current)}" aria-label="Adresse du proxy" />
         <button class="btn btn--primary" type="submit">Enregistrer</button>
         <button class="btn btn--ghost" type="button" id="proxyClear">Effacer</button>
-      </form>
-      <p class="page-sub" style="margin-top:10px">État actuel : <strong>${current ? escapeHtml(current) : (native ? 'requêtes directes (CORS à la charge des sites distants)' : 'proxy intégré')}</strong></p>
+      </form>`}
+      ${native ? '' : `<p class="page-sub" style="margin-top:10px">État actuel : <strong>${current ? escapeHtml(current) : 'proxy intégré'}</strong></p>`}
     </section>
   </div>`;
 
@@ -669,7 +669,15 @@ function openAddModal(prefill = '') {
       stepsEl.insertAdjacentHTML('beforeend', Components.analysisStep({ label: humanizeError(err), status: 'fail' }));
     } finally {
       submitBtn.disabled = false;
-      submitBtn.innerHTML = `${icon('search')} Analyser à nouveau`;
+      if (analysis) {
+        // Le bouton reste dans le formulaire : après l'analyse, il doit agir
+        // uniquement comme action d'ajout et ne pas soumettre une 2e analyse.
+        submitBtn.type = 'button';
+        submitBtn.innerHTML = `${icon('plus')} Ajouter à ma bibliothèque`;
+      } else {
+        submitBtn.type = 'submit';
+        submitBtn.innerHTML = `${icon('search')} Analyser à nouveau`;
+      }
     }
   });
 
@@ -686,6 +694,7 @@ function openAddModal(prefill = '') {
       </div>
       <p class="apreview__ok">✓ Manga prêt à être ajouté.</p>`;
     submitBtn.innerHTML = `${icon('plus')} Ajouter à ma bibliothèque`;
+    submitBtn.type = 'button';
     submitBtn.onclick = async (e) => {
       e.preventDefault();
       submitBtn.disabled = true;

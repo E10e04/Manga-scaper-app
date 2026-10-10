@@ -14,15 +14,13 @@ export function isNativeApp() {
  * - Natif (APK) : server.js ne tourne pas dans l'application.
  *   - Si l'utilisateur a configuré localStorage("mr_proxy_url")
  *     (ex. http://192.168.1.10:8080), on l'utilise.
- *   - Sinon, on retourne '' => les adaptateurs doivent passer en
- *     requêtes DIRECTES depuis le WebView (pas de proxy relatif,
- *     qui renverrait le HTML de l'app et casserait le JSON).
+ *   - Sinon, l'APK utilise CapacitorHttp pour les requêtes réseau natives;
+ *     on retourne '' pour éviter un proxy relatif qui renverrait l'app.
  */
 export function proxyBase() {
   if (typeof window === 'undefined') return ''; // Node (tests) : appel direct
-  if (isNativeApp()) {
-    const custom = (window.localStorage?.getItem('mr_proxy_url') || '').trim().replace(/\/+$/, '');
-    return custom; // vide => mode direct
-  }
+  // L'APK passe toujours par CapacitorHttp natif. Ignorer la valeur historique
+  // évite qu'une ancienne adresse de serveur d'ordinateur casse les requêtes.
+  if (isNativeApp()) return '';
   return window.location.origin; // même origine que l'app web
 }

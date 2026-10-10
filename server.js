@@ -352,7 +352,9 @@ async function handleApiImage(req, res, query) {
     const result = await fetchRemote(target, {
       timeout: 30000,
       maxBytes: 40 * 1024 * 1024,
-      headers: { ...BROWSER_HEADERS, Referer: target, Accept: 'image/avif,image/webp,image/png,image/*,*/*' },
+      // Certains CDN n'autorisent l'image que si le referer correspond à la
+      // page du chapitre (et non à l'URL même de l'image).
+      headers: { ...BROWSER_HEADERS, Referer: referer, Accept: 'image/avif,image/webp,image/png,image/*,*/*' },
     });
     if (result.statusCode >= 400) {
       return apiError(res, 502, `Image inaccessible (HTTP ${result.statusCode}).`);

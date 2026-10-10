@@ -3,9 +3,10 @@
  * et résolution des URLs de pages pour le lecteur.
  */
 import * as store from '../library/LibraryStorage.js';
-import { proxiedImageUrl } from '../scraper/Scraper.js';
+import { fetchImageBlob } from '../scraper/Scraper.js';
 
 const urlCache = new Map(); // key: `${chapterId}/${page}` -> objectURL
+const pendingUrlCache = new Map();
 
 /** Enregistre les métadonnées de pages d'un chapitre (URLs distantes). */
 export async function saveChapterPages(chapter, pages) {
@@ -51,21 +52,39 @@ export async function markChapterDownloaded(chapter, fully) {
  * sinon URL proxifiée distante. Appeler releasePageUrls() au fermeture du chapitre.
  */
 export async function resolvePageUrl(chapter, pageNumber) {
-  const cached = urlCache.get(`${chapter.id}/${pageNumber}`);
+  const key = `${chapter.id}/${pageNumber}`;
+  const cached = urlCache.get(key);
   if (cached) return cached;
+  if (pendingUrlCache.has(key)) return pendingUrlCache.get(key);
 
-  const record = await store.getImage(chapter.id, pageNumber);
-  if (record?.blob) {
-    const objUrl = URL.createObjectURL(record.blob);
-    urlCache.set(`${chapter.id}/${pageNumber}`, objUrl);
-    return objUrl;
+  const pending = (async () => {
+    const record = await store.getImage(chapter.id, pageNumber);
+    let blob = record?.blob;
+    if (!blob) {
+      const remote = chapter.pages?.[pageNumber - 1];
+      if (!remote) return null;
+      // Charger en blob passe par fetch (donc par CapacitorHttp dans l'APK),
+      // ce qui évite les limites CORS et permet d'envoyer le referer du chapitre.
+      blob = await fetchImageBlob(remote, chapter.url);
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    urlCache.set(key, objectUrl);
+    return objectUrl;
+  })();
+  pendingUrlCache.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    pendingUrlCache.delete(key);
   }
-  const remote = chapter.pages?.[pageNumber - 1];
-  if (remote) {
-    const proxied = proxiedImageUrl(remote, chapter.url);
-    if (proxied) return proxied;
-  }
-  return null;
+}
+
+/** Libère l'image d'une page quand le lecteur la démonte hors écran. */
+export function releasePageUrl(chapterId, pageNumber) {
+  const key = `${chapterId}/${pageNumber}`;
+  const url = urlCache.get(key);
+  if (url) URL.revokeObjectURL(url);
+  urlCache.delete(key);
 }
 
 /** Libère les object URLs d'un chapitre (anti-fuite mémoire). */
@@ -79,6 +98,9 @@ export function releaseChapterUrls(chapterId) {
       }
       urlCache.delete(key);
     }
+  }
+  for (const key of pendingUrlCache.keys()) {
+    if (key.startsWith(`${chapterId}/`)) pendingUrlCache.delete(key);
   }
 }
 

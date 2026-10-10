@@ -10,7 +10,7 @@
  *    pour extraire la liste des URLs d'images — sans jamais les exécuter.
  */
 import { BaseAdapter } from './BaseAdapter.js';
-import { fetchPage, parseHtml } from '../scraper/Scraper.js';
+import { fetchPage, fetchDataJson, parseHtml } from '../scraper/Scraper.js';
 import { extractTitle, extractCover, extractDescription, extractAuthor, extractStatus } from '../scraper/Parser.js';
 import { AdapterError, NotFoundError } from '../utils/errors.js';
 import { cleanText, resolveUrl, extractChapterNumber } from '../utils/helpers.js';
@@ -51,6 +51,32 @@ export class AnimeSamaAdapter extends BaseAdapter {
   async getChapters(mangaUrl) {
     const { html, finalUrl } = await fetchPage(mangaUrl);
     const doc = parseHtml(html);
+
+    // Anime-Sama n'expose pas les chapitres comme des liens HTML : sa page
+    // charge un JSON get_nb_chap_et_img.php?oeuvre=... en JavaScript.
+    const mangaTitle = cleanText(doc.querySelector('#titreOeuvre')?.textContent || extractTitle(doc, finalUrl));
+    if (mangaTitle) {
+      const endpoint = new URL('/s2/scans/get_nb_chap_et_img.php', finalUrl);
+      endpoint.searchParams.set('oeuvre', mangaTitle);
+      const data = await fetchDataJson(endpoint.toString());
+      const chapters = Object.entries(data || {})
+        .map(([key, count]) => {
+          const number = Number(String(key).replace(',', '.'));
+          const pageCount = Number(count);
+          if (!Number.isFinite(number) || !Number.isInteger(pageCount) || pageCount < 1) return null;
+          const chapterUrl = new URL(mangaUrl);
+          chapterUrl.searchParams.set('mr-chapter', key);
+          return {
+            url: chapterUrl.toString(),
+            title: `Chapitre ${key}`,
+            number,
+            pageCount,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.number - a.number);
+      if (chapters.length) return chapters.map((c, i) => ({ ...c, index: i }));
+    }
 
     const chapters = [];
     const seen = new Set();
@@ -93,6 +119,25 @@ export class AnimeSamaAdapter extends BaseAdapter {
   async getChapterPages(chapter, mangaUrl) {
     const url = typeof chapter === 'string' ? chapter : chapter?.url;
     if (!url) throw new AdapterError('Chapitre invalide : URL manquante.');
+    const chapterNumber = Number(chapter?.number ?? extractChapterNumber(chapter?.title || url));
+    if (Number.isFinite(chapterNumber)) {
+      const { html: mangaHtml, finalUrl } = await fetchPage(mangaUrl || url);
+      const mangaDoc = parseHtml(mangaHtml);
+      const title = cleanText(mangaDoc.querySelector('#titreOeuvre')?.textContent || extractTitle(mangaDoc, finalUrl));
+      const endpoint = new URL('/s2/scans/get_nb_chap_et_img.php', finalUrl);
+      endpoint.searchParams.set('oeuvre', title);
+      const counts = await fetchDataJson(endpoint.toString());
+      const pageCount = Number(counts?.[String(chapterNumber)]);
+      if (Number.isInteger(pageCount) && pageCount > 0 && pageCount <= 1000) {
+        const root = new URL(finalUrl).origin;
+        const base = `/s2/scans/${encodeURIComponent(title)}/${encodeURIComponent(String(chapterNumber))}/`;
+        return Array.from({ length: pageCount }, (_, i) => ({
+          pageNumber: i + 1,
+          imageUrl: new URL(`${base}${i + 1}.jpg`, root).toString(),
+        }));
+      }
+      throw new AdapterError(`Aucune page trouvée pour le chapitre ${chapterNumber} sur Anime-Sama.`);
+    }
     const referer = mangaUrl || url;
     const { html, finalUrl } = await fetchPage(url, { referer });
     const doc = parseHtml(html);

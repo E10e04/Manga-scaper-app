@@ -39,7 +39,7 @@ Où trouver l'APK :
 
 Installation sur téléphone : copier l'APK, activer « sources inconnues », installer. Debug APK = signature debug Android standard. Une version release signée pourra être branchée en ajoutant un keystore en secrets GitHub (`RELEASE_KEYSTORE`, etc.) et une tâche `assembleRelease`.
 
-> Note : le proxy Node.js (`server.js`) n'existe que pour la version Web. Dans l'APK Android, les requêtes partent en direct depuis le WebView ; si une source bloque le CORS, vous pouvez configurer un proxy réseau local dans `localStorage.setItem('mr_proxy_url', 'http://IP-du-pc:8080')`.
+> Dans l'APK Android, `CapacitorHttp` effectue les requêtes avec le réseau natif et les images sont chargées par l'application avec le referer du chapitre : aucun serveur sur ordinateur n'est requis. Le proxy Node.js reste disponible pour la version Web ou comme relais facultatif. Un site qui impose un CAPTCHA ou une vérification anti-bot peut toujours refuser l'accès automatique.
 
 ## Architecture
 
