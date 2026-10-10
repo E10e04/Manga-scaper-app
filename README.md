@@ -1,1 +1,57 @@
-# test-qwen
+# Manga Reader
+
+Application de bibliothèque et lecture de mangas : ajout par URL, scraping multi-sources (Anime-Sama, SushiScan, Scan-VF + adaptateur générique), lecteur immersif, téléchargement hors ligne (IndexedDB), PWA et Android via Capacitor.
+
+## Lancer (Web / dev)
+
+```bash
+npm install
+npm start          # http://localhost:8080 (app + proxy CORS /api/page, /api/data, /api/image)
+```
+
+## Tests
+
+```bash
+npm test           # scripts/test.mjs — adaptateurs, bibliothèque, progression, erreurs (19 tests)
+```
+
+## PWA
+
+`manifest.webmanifest` + `sw.js` (cache statique cache-first, cache runtime images, fallback offline). Installable sur ordinateur/mobile.
+
+## Android (Capacitor)
+
+```bash
+npm install
+npm run build               # génère www/
+npx cap add android         # une seule fois
+npx cap sync android
+npx cap open android        # puis Build > Build APK(s) dans Android Studio
+```
+
+### APK automatique (GitHub Actions)
+
+Le workflow `.github/workflows/android.yml` construit **manga-reader-debug.apk** à chaque push sur `main`, lors d'un tag `v*` (publié dans la Release GitHub correspondante) ou via exécution manuelle (`workflow_dispatch`).
+
+Où trouver l'APK :
+- **Actions** → *Build Android APK* → Artifacts → `manga-reader-debug-apk`
+- ou **Releases** après un tag `vX.Y.Z` → asset `manga-reader-debug.apk`
+
+Installation sur téléphone : copier l'APK, activer « sources inconnues », installer. Debug APK = signature debug Android standard. Une version release signée pourra être branchée en ajoutant un keystore en secrets GitHub (`RELEASE_KEYSTORE`, etc.) et une tâche `assembleRelease`.
+
+> Note : le proxy Node.js (`server.js`) n'existe que pour la version Web. Dans l'APK Android, les requêtes partent en direct depuis le WebView ; si une source bloque le CORS, vous pouvez configurer un proxy réseau local dans `localStorage.setItem('mr_proxy_url', 'http://IP-du-pc:8080')`.
+
+## Architecture
+
+```
+index.html · app.js · styles.css · sw.js · manifest.webmanifest · server.js · capacitor.config.json
+src/adapters/   connecteurs de sites (interface matches/getMangaInfo/getChapters/getChapterPages)
+src/scraper/    récupération via proxy + parsing DOM
+src/library/    bibliothèque, stockage IndexedDB, progression
+src/downloads/  file de téléchargement + stockage offline des images
+src/reader/     lecteur vertical lazy-load + réglages
+src/ui/         routeur, modales, toasts, composants
+src/utils/      erreurs typées, sanitisation, helpers
+scripts/        build.mjs (www/) · test.mjs
+.github/workflows/android.yml   build APK debug + Release auto
+```

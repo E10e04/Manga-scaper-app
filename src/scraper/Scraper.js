@@ -11,10 +11,21 @@ import { isValidHttpUrl } from '../utils/helpers.js';
 
 const isNative = typeof window !== 'undefined' && !/^https?:\/\/(localhost|127)/.test(window.location?.origin || '') && !!window.Capacitor;
 
-/** Base du proxy local (serveur Node). Vide en natif (requêtes directes). */
+/**
+ * Base du proxy.
+ * - Web : même origine que l'app (server.js sert /api/*).
+ * - Natif (Capacitor/Android) : server.js ne tourne pas dans l'APK.
+ *   L'utilisateur peut renseigner l'adresse d'un proxy accessible sur son
+ *   réseau via localStorage("mr_proxy_url") (ex. http://192.168.1.10:8080).
+ *   Sans configuration, les requêtes partent en direct depuis le WebView.
+ */
 function proxyBase() {
   if (typeof window === 'undefined') return ''; // Node (tests) : appel direct
-  return window.location.origin; // même origine que l'app
+  if (isNative) {
+    const custom = (window.localStorage?.getItem('mr_proxy_url') || '').trim().replace(/\/+$/, '');
+    return custom; // vide => requêtes directes
+  }
+  return window.location.origin; // même origine que l'app web
 }
 
 /**
