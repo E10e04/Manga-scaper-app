@@ -164,7 +164,12 @@ export class Reader {
       // Reprise de position si même chapitre
       const progress = getProgress(manga.id);
       const startPage = progress?.chapterId === chapterId && progress.page > 0 ? progress.page : 1;
-      requestAnimationFrame(() => this.scrollToPage(startPage, false));
+      requestAnimationFrame(() => {
+        this.scrollToPage(startPage, false);
+        // Marque le manga comme commencé dès l'ouverture du premier chapitre,
+        // même si le lecteur ne déclenche pas encore d'événement de scroll.
+        requestAnimationFrame(() => this.recordPosition());
+      });
       this.updatePager(startPage);
     } catch (err) {
       toastError(humanizeError(err));

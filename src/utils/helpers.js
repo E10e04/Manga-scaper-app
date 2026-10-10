@@ -38,7 +38,14 @@ export function chapterIdFromUrl(chapterUrl) {
 export function isValidHttpUrl(raw) {
   if (!raw || typeof raw !== 'string') return null;
   try {
-    const u = new URL(raw.trim());
+    // Certains claviers Android ajoutent des séparateurs invisibles ou des
+    // retours à la ligne lors du collage d'un lien.
+    let value = raw
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/[\r\n\t\u00A0\u202F]/g, '')
+      .trim();
+    if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
+    const u = new URL(value);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     if (!u.hostname.includes('.')) return null;
     return u.toString();

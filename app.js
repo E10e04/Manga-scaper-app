@@ -4,7 +4,7 @@
  * Vues : accueil / bibliothèque / manga détail / lecture / téléchargements /
  * historique / stockage. La logique métier délègue aux modules src/.
  */
-import { startRouter, addRoute, navigate, setNotFound } from './src/ui/Router.js';
+import { startRouter, addRoute, navigate, setNotFound, currentPath } from './src/ui/Router.js';
 import { openModal, closeModal, confirmDialog } from './src/ui/Modal.js';
 import { toastSuccess, toastError, toastWarning, toast } from './src/ui/Toast.js';
 import * as Components from './src/ui/Components.js';
@@ -21,6 +21,7 @@ import { isValidHttpUrl, escapeHtml, formatBytes, timeAgo, debounce } from './sr
 const $app = document.getElementById('view');
 let currentReader = null;
 let libraryCache = []; // entrées enrichies (rafraîchies à chaque vue)
+let downloadsStatusById = new Map();
 
 // ---------------------------------------------------------------------------
 // Navigation chrome
@@ -343,6 +344,21 @@ Downloads.onStateChange((state) => {
   const n = state.queue.filter((t) => ['queued', 'running', 'paused'].includes(t.status)).length;
   const dot = document.getElementById('navDlDot');
   if (dot) dot.hidden = n === 0;
+
+  // Rafraîchit les listes quand un chapitre vient d'être enregistré hors ligne.
+  const previousStatuses = downloadsStatusById;
+  const finished = state.queue.filter((t) =>
+    ['done', 'partial'].includes(t.status) && previousStatuses.get(t.id) !== t.status
+  );
+  downloadsStatusById = new Map(state.queue.map((t) => [t.id, t.status]));
+  if (finished.length) {
+    invalidateLibrary();
+    const path = currentPath();
+    if (path === '/' || path === '/accueil') void viewHome();
+    else if (path === '/telechargements') void viewDownloads();
+    else if (path === '/bibliotheque') void viewLibrary();
+    else if (path.startsWith('/manga/')) void viewManga({ id: decodeURIComponent(path.slice('/manga/'.length)) });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -630,7 +646,7 @@ function openAddModal(prefill = '') {
   form.innerHTML = `
     <label class="field">
       <span class="field__label">Collez l’URL de la page du manga</span>
-      <input type="url" name="url" required inputmode="url" autocomplete="off" spellcheck="false"
+      <input type="text" name="url" required inputmode="url" autocomplete="url" spellcheck="false"
         placeholder="https://exemple.fr/manga/naruto" value="${escapeHtml(prefill)}">
     </label>
     <p class="field__hint">Sources optimisées : Anime-Sama, SushiScan, Scan-VF — et toute page publique via le mode générique.</p>
@@ -645,8 +661,8 @@ function openAddModal(prefill = '') {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const url = form.url.value.trim();
-    if (!isValidHttpUrl(url)) {
+    const url = isValidHttpUrl(form.elements.namedItem('url')?.value || '');
+    if (!url) {
       return toastError('Cette URL n’est pas valide. Exemple : https://site.fr/manga/titre');
     }
     analysis = null;
