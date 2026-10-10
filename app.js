@@ -23,6 +23,7 @@ let currentReader = null;
 let libraryCache = null; // null = jamais chargé ; [] = chargé et bibliothèque vide
 let downloadsStatusById = new Map();
 let libraryStorageErrorShown = false;
+const LIBRARY_LOAD_TIMEOUT_MS = 3000;
 
 // ---------------------------------------------------------------------------
 // Navigation chrome
@@ -793,14 +794,31 @@ function openDownloadRangeModal(mangaId) {
 
 async function loadLibrary() {
   if (!libraryCache) {
+    let timeoutId;
     try {
-      libraryCache = await getLibraryEntries();
+      // La base peut s'ouvrir correctement puis rester bloquée sur une
+      // requête getAll/getChapter. Borner toute la lecture empêche les
+      // squelettes de l'accueil de tourner indéfiniment.
+      const entries = await Promise.race([
+        getLibraryEntries(),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error('La lecture du catalogue a dépassé 3 secondes.')),
+            LIBRARY_LOAD_TIMEOUT_MS
+          );
+        }),
+      ]);
+      libraryCache = entries;
     } catch (err) {
+      // Une panne ou une requête bloquée ne doit pas empêcher l'accès aux
+      // autres écrans. Un redémarrage permettra de retenter la lecture.
       libraryCache = [];
       if (!libraryStorageErrorShown) {
         libraryStorageErrorShown = true;
-        toastError(`Stockage du catalogue indisponible : ${humanizeError(err)}`);
+        toastWarning(`Catalogue non chargé après 3 secondes. L’application reste disponible; relance-la pour réessayer. ${humanizeError(err)}`, 8000);
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
   return libraryCache;
