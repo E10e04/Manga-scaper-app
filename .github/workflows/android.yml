@@ -29,8 +29,22 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK (cmdline-tools + platform 34 + build-tools)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_WORKSPACE"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          mkdir -p android-sdk/cmdline-tools
+          unzip -q cmdline-tools.zip -d android-sdk/cmdline-tools
+          mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
+          export ANDROID_HOME="$RUNNER_WORKSPACE/android-sdk"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "sdk.dir=$ANDROID_HOME" > "$GITHUB_WORKSPACE/android/local.properties"
+          echo "Android SDK ready"
 
       # Le projet android/ est versionné (généré par `npx cap add android`).
       # On ne le régénère PAS en CI : `cap add` échoue si le dossier existe déjà.
