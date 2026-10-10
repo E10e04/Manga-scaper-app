@@ -1,4 +1,4 @@
-# Manga Reader
+# manga2 — Manga Reader
 
 Application de bibliothèque et lecture de mangas : ajout par URL, scraping multi-sources (Anime-Sama, SushiScan, Scan-VF + adaptateur générique), lecteur immersif, téléchargement hors ligne (IndexedDB), PWA et Android via Capacitor.
 
