@@ -12,6 +12,12 @@
   "categories": ["books", "entertainment"],
   "icons": [
     {
+      "src": "/assets/icons/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
       "src": "/assets/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",

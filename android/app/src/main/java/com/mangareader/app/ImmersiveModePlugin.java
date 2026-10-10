@@ -21,6 +21,7 @@ public class ImmersiveModePlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             Window window = getActivity().getWindow();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(!enabled);
                 WindowInsetsController controller = window.getInsetsController();
                 if (controller != null) {
                     int bars = WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars();

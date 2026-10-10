@@ -40,6 +40,7 @@ export class Reader {
     this.pages = []; // [{pageNumber, imageUrl}]
     this.total = 0;
     this.fullscreenActive = false;
+    this.lastFullscreenTapAt = 0;
     this.observer = null;
     this.hideTimer = null;
     this.scrollUpTimer = null;
@@ -101,10 +102,20 @@ export class Reader {
     };
 
     this.el.root.addEventListener('click', (e) => {
-      // clic en dehors des barres : toggle UI si autoHide
-      if (!e.target.closest('.reader__topbar, .reader__bottombar, .reader__settings')) {
-        this.toggleUi();
+      if (e.target.closest('.reader__topbar, .reader__bottombar, .reader__settings')) return;
+      if (this.fullscreenActive) {
+        // Un toucher simple sert à lire/naviguer dans la page. En plein écran,
+        // seul un double-tap volontaire permet de retrouver les commandes.
+        const now = Date.now();
+        if (now - this.lastFullscreenTapAt <= 350) {
+          this.lastFullscreenTapAt = 0;
+          this.toggleUi(this.el.root.classList.contains('ui-hidden'));
+        } else {
+          this.lastFullscreenTapAt = now;
+        }
+        return;
       }
+      this.toggleUi();
     });
     this.el.scroll.addEventListener('scroll', this._onScroll, { passive: true });
     this.lastScrollTop = this.el.scroll.scrollTop;
@@ -457,6 +468,7 @@ export class Reader {
   }
 
   updateUiFromScroll() {
+    if (this.fullscreenActive) return;
     const s = getSettings();
     const scrollTop = this.el.scroll.scrollTop;
     const delta = scrollTop - this.lastScrollTop;
@@ -569,6 +581,9 @@ export class Reader {
   async toggleFullscreen(force) {
     const want = force ?? !this.fullscreenActive;
     this.fullscreenActive = want;
+    // In fullscreen, remove both toolbar backdrops from the notch and bottom
+    // inset areas. Controls return only after an intentional double-tap.
+    this.toggleUi(want ? false : getSettings().showUi);
     if (isNativeApp()) {
       try {
         await ImmersiveMode.setEnabled({ enabled: want });
