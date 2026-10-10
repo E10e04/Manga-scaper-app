@@ -3,7 +3,7 @@
  * Les images distantes (pages de mangas) sont mises en cache à la volée
  * afin de permettre une lecture partiellement hors ligne.
  */
-const VERSION = 'manga-reader-v1';
+const VERSION = 'manga-reader-v2';
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

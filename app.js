@@ -417,6 +417,51 @@ async function viewStorage() {
 }
 
 // ---------------------------------------------------------------------------
+// Vue : Réglages
+// ---------------------------------------------------------------------------
+
+async function viewSettings() {
+  const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const current = (localStorage.getItem('mr_proxy_url') || '').trim();
+  $app.innerHTML = `
+  <div class="page">
+    <header class="page-head"><h1 class="page-title">Réglages</h1></header>
+    <section>
+      <h2 class="section-title">${icon('download')} Proxy réseau${native ? '' : ' (optionnel)'}</h2>
+      <p class="page-sub" style="margin-bottom:14px">
+        ${native
+          ? 'L’application Android ne peut pas lancer de serveur local. Pour contourner les restrictions CORS des sites de scan, lancez <code>node server.js</code> sur un ordinateur du même réseau Wi‑Fi et indiquez son adresse ici (ex. <code>http://192.168.1.10:8080</code>).'
+          : 'Sur le Web, le proxy est intégré au serveur local (même origine). Vous pouvez indiquer une autre adresse si l’application est servie autrement.'}
+      </p>
+      <form id="proxyForm" class="proxy-form">
+        <input type="url" id="proxyInput" class="input" inputmode="url" autocomplete="off" spellcheck="false"
+               placeholder="${native ? 'http://192.168.1.10:8080' : '(vide = même origine)'}" value="${escapeHtml(current)}" aria-label="Adresse du proxy" />
+        <button class="btn btn--primary" type="submit">Enregistrer</button>
+        <button class="btn btn--ghost" type="button" id="proxyClear">Effacer</button>
+      </form>
+      <p class="page-sub" style="margin-top:10px">État actuel : <strong>${current ? escapeHtml(current) : (native ? 'requêtes directes (CORS à la charge des sites distants)' : 'proxy intégré')}</strong></p>
+    </section>
+  </div>`;
+
+  const form = document.getElementById('proxyForm');
+  const input = document.getElementById('proxyInput');
+  form?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const val = (input.value || '').trim().replace(/\/+$/, '');
+    if (val && !isValidHttpUrl(val)) return toastError('Adresse invalide. Exemple : http://192.168.1.10:8080');
+    if (val) localStorage.setItem('mr_proxy_url', val);
+    else localStorage.removeItem('mr_proxy_url');
+    toastSuccess(val ? 'Proxy enregistré — vous pouvez relancer une analyse' : 'Proxy retiré');
+    viewSettings();
+  });
+  document.getElementById('proxyClear')?.addEventListener('click', () => {
+    localStorage.removeItem('mr_proxy_url');
+    toast('Proxy retiré — requêtes directes.');
+    viewSettings();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Actions globales (délégation)
 // ---------------------------------------------------------------------------
 
@@ -757,6 +802,7 @@ async function boot() {
   addRoute('/telechargements', viewDownloads);
   addRoute('/historique', viewHistory);
   addRoute('/stockage', viewStorage);
+  addRoute('/reglages', viewSettings);
   setNotFound(() => {
     $app.innerHTML = Components.emptyState({ title: 'Page introuvable', text: 'Ce chemin n’existe pas dans l’application.' });
   });

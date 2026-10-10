@@ -1,32 +1,15 @@
 /**
- * Scraping : récupération de pages distantes via le proxy local (/api/page).
+ * Scraping : récupération de pages distantes.
  *
- * En environnement Capacitor (Android), le proxy distant n'existe pas :
- * on tente d'abord une requête directe (le WebView autorise CORS si
- * allowMixedContent / configuration serveur le permettent), puis on replie
- * sur le proxy relatif si disponible.
+ * Deux modes :
+ * - Web / proxy configuré : requêtes via /api/page du proxy Node (server.js),
+ *   qui contourne les restrictions CORS.
+ * - APK sans proxy : requêtes DIRECTES depuis le WebView. Si le site distant
+ *   bloque CORS, une erreur claire et actionnable est affichée.
  */
 import { NetworkError, ValidationError } from '../utils/errors.js';
 import { isValidHttpUrl } from '../utils/helpers.js';
-
-const isNative = typeof window !== 'undefined' && !/^https?:\/\/(localhost|127)/.test(window.location?.origin || '') && !!window.Capacitor;
-
-/**
- * Base du proxy.
- * - Web : même origine que l'app (server.js sert /api/*).
- * - Natif (Capacitor/Android) : server.js ne tourne pas dans l'APK.
- *   L'utilisateur peut renseigner l'adresse d'un proxy accessible sur son
- *   réseau via localStorage("mr_proxy_url") (ex. http://192.168.1.10:8080).
- *   Sans configuration, les requêtes partent en direct depuis le WebView.
- */
-function proxyBase() {
-  if (typeof window === 'undefined') return ''; // Node (tests) : appel direct
-  if (isNative) {
-    const custom = (window.localStorage?.getItem('mr_proxy_url') || '').trim().replace(/\/+$/, '');
-    return custom; // vide => requêtes directes
-  }
-  return window.location.origin; // même origine que l'app web
-}
+import { isNativeApp, proxyBase } from '../utils/env.js';
 
 /**
  * Récupère le HTML d'une page distante.
@@ -44,92 +27,127 @@ export async function fetchPage(url, opts = {}) {
     throw new NetworkError('Fonction réseau indisponible dans cet environnement.');
   }
 
-  // 1) Via le proxy local (chemin le plus fiable pour les navigateurs)
+  const base = proxyBase();
+
+  // ---- Mode direct (APK sans proxy configuré) ----
+  if (!base) {
+    try {
+      const res = await fetch(valid, { signal, redirect: 'follow' });
+      if (!res.ok) throw new NetworkError(`Le site distant a répondu HTTP ${res.status}.`);
+      const html = await res.text();
+      return { html, finalUrl: res.url || valid };
+    } catch (err) {
+      if (err instanceof ValidationError || err instanceof NetworkError) throw err;
+      if (err?.name === 'AbortError') throw err;
+      throw new NetworkError(
+        'Connexion refusée par le site distant (restriction CORS). Sur Android, lancez le proxy sur votre PC (node server.js) et indiquez son adresse IP dans Réglages › Proxy.'
+      );
+    }
+  }
+
+  // ---- Mode proxy (/api/page) ----
+  let res;
   try {
     const params = new URLSearchParams({ url: valid });
     if (referer) params.set('referer', referer);
-    const res = await fetch(`${proxyBase()}/api/page?${params}`, { signal });
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && typeof json.html === 'string') {
-        return { html: json.html, finalUrl: json.finalUrl || valid };
-      }
-      if (json.error) throw new NetworkError(json.error);
-    } else if (res.status === 404) {
-      const json = await res.json().catch(() => ({}));
-      throw new NetworkError(json.error || 'La page demandée est introuvable sur le site distant.');
-    } else if (res.status >= 500) {
-      const json = await res.json().catch(() => ({}));
-      throw new NetworkError(json.error || 'Le site distant est momentanément inaccessible.');
-    }
-    throw new NetworkError('Réponse inattendue du proxy local.');
+    res = await fetch(`${base}/api/page?${params}`, { signal });
   } catch (err) {
-    if (err instanceof ValidationError) throw err;
     if (err?.name === 'AbortError') throw err;
-    // Proxy indisponible (ex. app servie sans server.js) : tentative directe
-    if (err instanceof NetworkError && isNative) {
-      try {
-        const res = await fetch(valid, { signal, headers: referer ? { Referer: referer } : undefined });
-        if (res.ok) return { html: await res.text(), finalUrl: res.url || valid };
-      } catch {
-        /* on remonte l'erreur d'origine, déjà humanisée */
-      }
-    }
-    throw err;
+    throw new NetworkError('Impossible de contacter le proxy local. Vérifiez que server.js tourne et que son adresse est correcte.');
   }
+
+  // Le proxy doit répondre en JSON ; s'il renvoie du HTML, c'est qu'il ne
+  // tourne pas à cette adresse (ex. page 404 d'un autre serveur).
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* réponse non-JSON */ }
+
+  if (json && json.success && typeof json.html === 'string') {
+    return { html: json.html, finalUrl: json.finalUrl || valid };
+  }
+  if (json && json.error) {
+    throw new NetworkError(json.error);
+  }
+  if (!json) {
+    throw new NetworkError(res.ok
+      ? 'Le proxy a renvoyé une réponse invalide (non-JSON).'
+      : `Erreur du proxy local (HTTP ${res.status}).`);
+  }
+  throw new NetworkError('Réponse inattendue du proxy local.');
 }
 
 /**
- * Récupère un JSON distant via /api/data.
+ * Récupère un JSON distant via /api/data (proxy uniquement).
  */
 export async function fetchDataJson(url, opts = {}) {
   const valid = isValidHttpUrl(url);
   if (!valid) throw new ValidationError('URL invalide.');
+  const base = proxyBase();
+  if (!base) {
+    // Mode direct : on récupère le JSON depuis l'URL distante elle-même.
+    let res;
+    try {
+      res = await fetch(valid, { signal: opts.signal });
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      throw new NetworkError('Connexion impossible avec la source distante.');
+    }
+    if (!res.ok) throw new NetworkError(`La source distante a répondu HTTP ${res.status}.`);
+    const data = await res.json().catch(() => null);
+    if (data === null) throw new NetworkError('Réponse invalide de la source distante.');
+    return data;
+  }
   const params = new URLSearchParams({ url: valid });
   let res;
   try {
-    res = await fetch(`${proxyBase()}/api/data?${params}`, { signal: opts.signal });
+    res = await fetch(`${base}/api/data?${params}`, { signal: opts.signal });
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     throw new NetworkError('Connexion impossible avec le serveur local.');
   }
-  const json = await res.json().catch(() => null);
-  if (!res.ok || !json?.success) {
-    throw new NetworkError(json?.error || 'Impossible de récupérer les données distantes.');
-  }
-  return json.data;
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  if (json && json.success && json.data !== undefined) return json.data;
+  throw new NetworkError(json?.error || (json ? 'Impossible de récupérer les données distantes.' : `Réponse invalide du proxy (HTTP ${res.status}).`));
 }
 
 /**
  * Construit l'URL proxy pour afficher/télécharger une image distante.
  * data: et URLs relatives passent tels quels.
+ * En mode direct (APK sans proxy), retourne l'URL telle quelle.
  */
 export function proxiedImageUrl(imageUrl, referer) {
   if (!imageUrl) return null;
   if (imageUrl.startsWith('data:')) return imageUrl;
   const valid = isValidHttpUrl(imageUrl);
   if (!valid) return null;
+  const base = proxyBase();
+  if (!base) return valid; // mode direct : URL distante utilisée telle quelle
   const params = new URLSearchParams({ url: valid });
   if (referer) params.set('referer', referer);
-  return `${proxyBase()}/api/image?${params}`;
+  return `${base}/api/image?${params}`;
 }
 
 /**
  * Télécharge une image et retourne son Blob (via proxy ou direct).
  */
 export async function fetchImageBlob(imageUrl, referer, signal) {
-  const proxied = proxiedImageUrl(imageUrl, referer);
-  if (!proxied) throw new ValidationError('URL d’image invalide.');
+  const target = proxiedImageUrl(imageUrl, referer);
+  if (!target) throw new ValidationError('URL d’image invalide.');
   let res;
   try {
-    res = await fetch(proxied, { signal });
+    res = await fetch(target, { signal });
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     throw new NetworkError('Téléchargement de l’image interrompu.');
   }
   if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new NetworkError(json.error || `Image inaccessible (HTTP ${res.status}).`);
+    throw new NetworkError(`Image inaccessible (HTTP ${res.status}).`);
+  }
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    throw new NetworkError('L’image n’a pas pu être chargée (le serveur a renvoyé une page web).');
   }
   const blob = await res.blob();
   if (!blob || blob.size < 64) {
