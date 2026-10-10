@@ -128,7 +128,12 @@ async function fetchPageInner(valid, referer, signal) {
       if (/id=["']challenge-form|cf_chl_|just a moment|__cf_chl|attention required!/i.test(html.slice(0, 60000))) {
         throw new NetworkError('Le site distant exige une vérification anti-bot que l’application ne peut pas automatiser.');
       }
-      return { html, finalUrl: res.url || valid };
+      // Certaines versions de Capacitor/WebView exposent une URL interne
+      // (capacitor://localhost) dans Response.url, même après une requête
+      // distante réussie. Ne jamais la propager aux adaptateurs : leur étape
+      // suivante (liste des chapitres, images) la validerait à tort comme URL
+      // de manga invalide.
+      return { html, finalUrl: isValidHttpUrl(res.url) || valid };
     } catch (err) {
       if (err instanceof ValidationError) throw err;
       if (err?.name === 'AbortError') throw err;
@@ -167,7 +172,7 @@ async function fetchPageInner(valid, referer, signal) {
   const json = await readProxyJson(res, text);
 
   if (json && json.success && typeof json.html === 'string') {
-    return { html: json.html, finalUrl: json.finalUrl || valid };
+    return { html: json.html, finalUrl: isValidHttpUrl(json.finalUrl) || valid };
   }
   if (json && json.error) {
     throw new NetworkError(json.error);

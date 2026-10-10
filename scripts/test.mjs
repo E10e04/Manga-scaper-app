@@ -107,6 +107,20 @@ await t('fetchPage URL invalide => message humain (pas undefined/null)', async (
     return typeof e.message === 'string' && e.message.length > 3 && !/undefined|null|NaN/.test(e.message);
   });
 });
+await t('fetchPage ignore une URL interne Capacitor dans Response.url', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    const response = new Response('<html><title>Kingdom</title></html>', { status: 200 });
+    Object.defineProperty(response, 'url', { value: 'capacitor://localhost/kingdom' });
+    return response;
+  };
+  try {
+    const result = await SC.fetchPage('https://www.scan-vf.net/kingdom');
+    assert.equal(result.finalUrl, 'https://www.scan-vf.net/kingdom');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 console.log('— Réseau (utils/net.js)');
 const NET = await import('../src/utils/net.js');
