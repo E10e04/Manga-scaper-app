@@ -1,5 +1,12 @@
 node_modules/
 www/
-android/
+
+# Android (Capacitor) — projet versionné pour un build CI fiable ;
+# seuls les artefacts de build sont ignorés.
+/android/app/build/
+/android/build/
+/android/.gradle/
+/android/local.properties
+/android/captures/
 *.log
 .DS_Store

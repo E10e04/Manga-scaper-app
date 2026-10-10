@@ -32,10 +32,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Add Capacitor Android platform
-        run: npx cap add android
-
-      - name: Sync Capacitor
+      # Le projet android/ est versionné (généré par `npx cap add android`).
+      # On ne le régénère PAS en CI : `cap add` échoue si le dossier existe déjà.
+      - name: Sync Capacitor (copies www/ into the Android assets)
         run: npx cap sync android
 
       - name: Grant execute permission for gradlew
