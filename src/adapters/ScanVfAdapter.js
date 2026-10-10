@@ -19,6 +19,15 @@ import {
 } from '../scraper/Parser.js';
 import { AdapterError } from '../utils/errors.js';
 import { resolveUrl, cleanText } from '../utils/helpers.js';
+import { safeImageUrl } from '../utils/sanitize.js';
+
+/** Certaines pages Scan-VF concatènent deux URL complètes dans l'attribut src. */
+function scanVfImageUrl(raw, baseUrl) {
+  const value = String(raw || '').trim();
+  const absoluteUrls = value.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+  const candidate = absoluteUrls.length ? absoluteUrls[absoluteUrls.length - 1] : value;
+  return safeImageUrl(resolveUrl(candidate, baseUrl));
+}
 
 export class ScanVfAdapter extends BaseAdapter {
   constructor() {
@@ -32,9 +41,13 @@ export class ScanVfAdapter extends BaseAdapter {
   async getMangaInfo(url) {
     const { html, finalUrl } = await fetchPage(url);
     const doc = parseHtml(html);
-    const title =
+    let title =
       cleanText(doc.querySelector('.serie-header h1, .series-title, h1.page-title')?.textContent) ||
       extractTitle(doc, finalUrl);
+    if (!title || /^scanonepiece$/i.test(title) || /^lecture en ligne/i.test(title)) {
+      const slug = new URL(finalUrl).pathname.split('/').filter(Boolean).pop() || '';
+      title = decodeURIComponent(slug).replace(/[-_]+/g, ' ').replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+    }
     if (!title) throw new AdapterError('Aucun manga identifiable sur cette page Scan-VF.');
 
     let cover = null;
@@ -96,8 +109,19 @@ export class ScanVfAdapter extends BaseAdapter {
 
     const normalized = chapters.map((c) => this.normalizeChapter(c, finalUrl)).filter(Boolean);
     if (!normalized.length) throw new AdapterError('Aucun chapitre exploitable sur ce manga Scan-VF.');
-    normalized.sort((a, b) => (b.number ?? -1) - (a.number ?? -1));
-    return normalized.map((c, i) => ({ ...c, index: i }));
+    const base = new URL(finalUrl);
+    const seriesPath = base.pathname.replace(/\/+$/, '');
+    const seriesChapters = normalized.filter((c) => {
+      try {
+        const u = new URL(c.url);
+        return u.origin === base.origin && u.pathname.startsWith(`${seriesPath}/`) && /\/(?:chapitre|chapter)[^/]*\d+\/?$/i.test(u.pathname);
+      } catch {
+        return false;
+      }
+    });
+    const result = seriesChapters.length ? seriesChapters : normalized;
+    result.sort((a, b) => (b.number ?? -1) - (a.number ?? -1));
+    return result.map((c, i) => ({ ...c, index: i }));
   }
 
   async getChapterPages(chapter, mangaUrl) {
@@ -108,14 +132,19 @@ export class ScanVfAdapter extends BaseAdapter {
     const doc = parseHtml(html);
 
     let pages = [];
-    for (const sel of ['#chapter-images img', '.chapter-images img', '.reading-content img', '#images_lecture img', '.page-break img']) {
+    const seenImageUrls = new Set();
+    for (const sel of ['img[alt*=" - Page "]', 'img[data-src*="/uploads/manga/"]', 'img.scan-page', '#chapter-images img', '.chapter-images img', '.reading-content img', '#images_lecture img', '.page-break img']) {
       const els = doc.querySelectorAll(sel);
-      if (els.length >= 2) {
+      if (els.length > 0) {
         els.forEach((img, i) => {
-          const src = img.getAttribute('src') || img.getAttribute('data-src');
-          if (src) pages.push({ pageNumber: i + 1, imageUrl: resolveUrl(src, finalUrl) });
+          const src = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || img.getAttribute('src');
+          const imageUrl = scanVfImageUrl(src, finalUrl);
+          if (imageUrl && !seenImageUrls.has(imageUrl)) {
+            seenImageUrls.add(imageUrl);
+            pages.push({ pageNumber: pages.length + 1, imageUrl });
+          }
         });
-        break;
+        if (pages.length) break;
       }
     }
     if (pages.length < 2) pages = extractChapterImages(doc, finalUrl);

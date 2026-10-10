@@ -161,10 +161,10 @@ export function extractChapterImages(doc, chapterUrl) {
   const collect = (el) => {
     for (const img of el.querySelectorAll('img')) {
       const src =
-        img.getAttribute('src') ||
         img.getAttribute('data-src') ||
         img.getAttribute('data-lazy-src') ||
         img.getAttribute('data-original') ||
+        img.getAttribute('src') ||
         '';
       const abs = safeImageUrl(resolveUrl(src, chapterUrl));
       if (!abs || seen.has(abs)) continue;

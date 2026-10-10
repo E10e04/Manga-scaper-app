@@ -19,7 +19,7 @@ import { escapeHtml } from '../utils/helpers.js';
 import { toast, toastError, toastSuccess, toastWarning } from '../ui/Toast.js';
 import { navigate } from '../ui/Router.js';
 
-const PREFETCH = 3; // pages préchargées autour du viewport
+const PREFETCH = 2; // pages préchargées en avance, au maximum
 
 export class Reader {
   /**
@@ -35,7 +35,15 @@ export class Reader {
     this.total = 0;
     this.observer = null;
     this.hideTimer = null;
+    this.scrollUpTimer = null;
     this.saveTimer = null;
+    this.prefetchTimer = null;
+    this.prefetchQueue = [];
+    this.prefetchQueued = new Set();
+    this.prefetchedPages = new Set();
+    this.prefetching = false;
+    this.lastScrollAt = 0;
+    this.lastScrollTop = 0;
     this.lastVisible = 1;
     this.destroyed = false;
     this._onScroll = this._onScroll.bind(this);
@@ -92,6 +100,7 @@ export class Reader {
       }
     });
     this.el.scroll.addEventListener('scroll', this._onScroll, { passive: true });
+    this.lastScrollTop = this.el.scroll.scrollTop;
     this.host.querySelector('#rdBack').addEventListener('click', () => this.close());
     this.host.querySelector('#rdDownload').addEventListener('click', () => this.downloadCurrent());
     this.host.querySelector('#rdSettings').addEventListener('click', () => this.toggleSettings());
@@ -119,7 +128,11 @@ export class Reader {
 
       // Récupère les URLs de pages si nécessaire
       let working = chapter;
-      if (!working.pages || working.pages.length === 0) {
+      const scanVfCacheIsStale = /scan[-_.]?vf\./i.test(manga.sourceUrl || '')
+        && !working.downloaded
+        && Array.isArray(working.pages)
+        && working.pages.some((url) => !/\/uploads\/manga\//i.test(url) || /^data:image\/gif/i.test(url) || /\shttps?:\/\//i.test(url));
+      if (!working.pages || working.pages.length === 0 || scanVfCacheIsStale) {
         const adapter = findAdapter(manga.sourceUrl) || getGenericAdapter();
         let pages;
         try {
@@ -243,25 +256,78 @@ export class Reader {
   }
 
   preloadNear(pageNum) {
-    for (let p = pageNum + 1; p <= Math.min(this.total, pageNum + PREFETCH); p++) {
-      const slot = this.el.pages.children[p - 1];
-      if (slot && !slot.__mounted) this.warmUrl(p);
+    for (let page = pageNum + 1; page <= Math.min(this.total, pageNum + PREFETCH); page++) {
+      const slot = this.el.pages.children[page - 1];
+      if (!slot || slot.__mounted || slot.__mounting || this.prefetchQueued.has(page) || this.prefetchedPages.has(page)) continue;
+      if (this.prefetchQueue.length >= PREFETCH) break;
+      this.prefetchQueue.push(page);
+      this.prefetchQueued.add(page);
     }
+    this.schedulePrefetch();
   }
 
   async warmUrl(pageNum) {
     try {
       await resolvePageUrl(this.chapter, pageNum);
+      if (this.destroyed && this.chapter) releasePageUrl(this.chapter.id, pageNum);
     } catch {
       /* best effort */
     }
   }
 
+  schedulePrefetch() {
+    if (this.destroyed || this.prefetching || this.prefetchTimer || !this.prefetchQueue.length) return;
+    const connection = typeof navigator !== 'undefined' ? navigator.connection : null;
+    if (connection?.saveData || /^(slow-2g|2g)$/i.test(connection?.effectiveType || '')) return;
+    const run = () => {
+      this.prefetchTimer = null;
+      if (this.destroyed || !this.prefetchQueue.length) return;
+      const waitForQuiet = 700 - (Date.now() - this.lastScrollAt);
+      if (waitForQuiet > 0) {
+        this.prefetchTimer = { kind: 'timer', id: setTimeout(run, waitForQuiet) };
+        return;
+      }
+
+      const nextPage = this.computeCurrentPage() + 1;
+      const index = this.prefetchQueue.findIndex((page) => page >= nextPage);
+      if (index < 0) {
+        this.prefetchQueue.forEach((page) => this.prefetchQueued.delete(page));
+        this.prefetchQueue = [];
+        return;
+      }
+      const [page] = this.prefetchQueue.splice(index, 1);
+      this.prefetchQueued.delete(page);
+      this.prefetching = true;
+      this.warmUrl(page).finally(() => {
+        this.prefetching = false;
+        this.prefetchedPages.add(page);
+        this.schedulePrefetch();
+      });
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+      this.prefetchTimer = { kind: 'idle', id: window.requestIdleCallback(run, { timeout: 1400 }) };
+    } else {
+      this.prefetchTimer = { kind: 'timer', id: setTimeout(run, 450) };
+    }
+  }
+
+  clearPrefetchTimer() {
+    if (!this.prefetchTimer) return;
+    if (this.prefetchTimer.kind === 'idle' && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(this.prefetchTimer.id);
+    } else {
+      clearTimeout(this.prefetchTimer.id);
+    }
+    this.prefetchTimer = null;
+  }
+
   _onScroll() {
+    this.lastScrollAt = Date.now();
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => this.recordPosition(), 400);
     this.updateActivePager();
-    this.nudgeUi();
+    this.updateUiFromScroll();
   }
 
   updateActivePager() {
@@ -377,17 +443,31 @@ export class Reader {
     this.el.root.classList.toggle('ui-hidden', !show);
   }
 
-  nudgeUi() {
+  updateUiFromScroll() {
     const s = getSettings();
-    if (!s.autoHideControls || !s.showUi) return;
-    this.toggleUi(true);
-    clearTimeout(this.hideTimer);
-    this.hideTimer = setTimeout(() => this.toggleUi(false), 2600);
+    const scrollTop = this.el.scroll.scrollTop;
+    const delta = scrollTop - this.lastScrollTop;
+    this.lastScrollTop = scrollTop;
+    if (!s.autoHideControls || !s.showUi || !this.el.settingsPanel.hidden) return;
+
+    if (delta > 1) {
+      clearTimeout(this.scrollUpTimer);
+      this.scrollUpTimer = null;
+      this.toggleUi(false);
+    } else if (delta < -1 && this.el.root.classList.contains('ui-hidden') && !this.scrollUpTimer) {
+      this.scrollUpTimer = setTimeout(() => {
+        this.scrollUpTimer = null;
+        if (!this.destroyed && getSettings().autoHideControls && getSettings().showUi) this.toggleUi(true);
+      }, 800);
+    }
   }
 
   toggleSettings() {
     const panel = this.el.settingsPanel;
     if (panel.hidden) {
+      this.toggleUi(true);
+      clearTimeout(this.scrollUpTimer);
+      this.scrollUpTimer = null;
       this.renderSettingsPanel();
       panel.hidden = false;
     } else {
@@ -398,6 +478,7 @@ export class Reader {
   renderSettingsPanel() {
     const s = getSettings();
     this.el.settingsPanel.innerHTML = `
+      <div class="rs-head"><strong>Mise en page</strong><button class="btn btn--ghost btn--sm" type="button" id="rsClose">Terminé</button></div>
       <div class="rs-row">
         <label for="rsWidth">Largeur max. des pages</label>
         <div class="rs-control"><input type="range" id="rsWidth" min="360" max="1600" step="20" value="${s.maxWidth}"><output>${s.maxWidth}px</output></div>
@@ -425,6 +506,7 @@ export class Reader {
       </div>`;
 
     const bind = (id, evt, fn) => this.el.settingsPanel.querySelector(id)?.addEventListener(evt, fn);
+    bind('#rsClose', 'click', () => { this.el.settingsPanel.hidden = true; });
     bind('#rsWidth', 'input', (e) => {
       setSetting('maxWidth', Number(e.target.value));
       e.target.nextElementSibling.value = `${e.target.value}px`;
@@ -491,7 +573,11 @@ export class Reader {
     this.destroyed = true;
     this.recordPosition();
     clearTimeout(this.hideTimer);
+    clearTimeout(this.scrollUpTimer);
     clearTimeout(this.saveTimer);
+    this.clearPrefetchTimer();
+    this.prefetchQueue = [];
+    this.prefetchQueued.clear();
     this.observer?.disconnect();
     document.removeEventListener('keydown', this._onKey);
     document.removeEventListener('visibilitychange', this._onVis);

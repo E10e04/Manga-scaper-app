@@ -74,7 +74,7 @@ function continueCard(entry) {
       <h3>${escapeHtml(m.title)}</h3>
       <p>${p.chapterNumber != null ? `Chapitre ${escapeHtml(String(p.chapterNumber))}` : 'Prêt à lire'}${p.page ? ` · page ${p.page}/${p.pages}` : ''}</p>
       ${progressBar(pct)}
-      <button class="btn btn--primary btn--sm" data-action="continue" data-manga="${escapeHtml(m.id)}">${icon('play')} Continuer</button>
+      <button class="icon-btn continue-card__play" data-action="continue" data-manga="${escapeHtml(m.id)}" aria-label="Continuer la lecture de ${escapeHtml(m.title)}" title="Continuer">${icon('play')}</button>
     </div>
   </article>`;
 }
@@ -668,6 +668,9 @@ function openAddModal(prefill = '') {
     } catch (err) {
       stepsEl.insertAdjacentHTML('beforeend', Components.analysisStep({ label: humanizeError(err), status: 'fail' }));
     } finally {
+      // Chaque étape "run" est remplacée par une étape de résultat distincte.
+      // Les retirer ici évite de laisser leurs spinners visibles après l'analyse.
+      stepsEl.querySelectorAll('.astep--run').forEach((step) => step.remove());
       submitBtn.disabled = false;
       if (analysis) {
         // Le bouton reste dans le formulaire : après l'analyse, il doit agir
