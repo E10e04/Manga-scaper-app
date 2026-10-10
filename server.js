@@ -206,14 +206,82 @@ function parseTargetUrl(raw) {
 /** En-têtes anti-bot : beaucoup de sites de scan bloquent les requêtes sans UA navigateur. */
 const BROWSER_HEADERS = {
   'User-Agent':
-    'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
   'Sec-Fetch-Dest': 'document',
   'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'cross-site',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
   'Upgrade-Insecure-Requests': '1',
 };
+
+/**
+ * Relais publics de secours (même liste que le client web), essayés par le
+ * serveur quand la source directe échoue (403/429/challenge anti-bot ou
+ * erreur réseau). Ils sortent du datacenter vers l'origine des relais, ce
+ * qui peut débloquer certaines situations où l'IP locale est bannie.
+ */
+const RELAY_FETCHERS = [
+  { name: 'codetabs', build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+  { name: 'allorigins', build: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` },
+];
+
+/** Récupère une page via un relais public ; renvoie null si indisponible. */
+async function fetchViaRelay(target) {
+  for (const relay of RELAY_FETCHERS) {
+    try {
+      const r = await fetchRemote(relay.build(target), {
+        timeout: 25000,
+        maxBytes: 12 * 1024 * 1024,
+        headers: { 'User-Agent': BROWSER_HEADERS['User-Agent'], Accept: '*/*' },
+      });
+      if (r.statusCode !== 200) continue;
+      const text = r.body.toString('utf8');
+      // Le relais doit renvoyer du contenu exploitable, pas sa propre page d'erreur.
+      if (!text || text.length < 500) continue;
+      if (/id="challenge-form"|cf_chl_|Just a moment|__cf_chl|Attention Required!/.test(text.slice(0, 60000))) continue;
+      console.log(`[proxy] relais ${relay.name} OK pour ${target}`);
+      return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from(text, 'utf8'), via: relay.name };
+    } catch {
+      /* relais suivant */
+    }
+  }
+  return null;
+}
+
+/** Tentative de récupération avec repli automatique sur les relais publics. */
+async function fetchPageResilient(target, referer) {
+  let direct = null;
+  let directErr = null;
+  try {
+    direct = await fetchRemote(target, {
+      timeout: 25000,
+      maxBytes: 12 * 1024 * 1024,
+      headers: { ...BROWSER_HEADERS, Referer: referer },
+    });
+    const blocked =
+      direct.statusCode === 403 ||
+      direct.statusCode === 429 ||
+      /id="challenge-form"|cf_chl_|Just a moment|__cf_chl|Attention Required!/.test(direct.body.toString('utf8').slice(0, 60000));
+    if (!blocked && direct.statusCode >= 400) {
+      const e = new Error('HTTP_' + direct.statusCode);
+      e.result = direct;
+      throw e;
+    }
+    if (!blocked) return direct;
+  } catch (err) {
+    if (err && err.result) throw err; // 4xx réel (hors blocage) : on remonte
+    directErr = err;
+  }
+  // Source directe bloquée (anti-bot / débit / réseau) : relais publics.
+  const relayed = await fetchViaRelay(target);
+  if (relayed) return relayed;
+  if (direct) return direct; // on renvoie la réponse bloquée pour diagnostic
+  const e = new Error(directErr?.message || 'REACH_FAIL');
+  e.cause = directErr;
+  throw e;
+}
 
 async function handleApiPage(req, res, query) {
   const target = parseTargetUrl(query.get('url'));
@@ -221,11 +289,7 @@ async function handleApiPage(req, res, query) {
 
   const referer = query.get('referer') || new URL(target).origin + '/';
   try {
-    const result = await fetchRemote(target, {
-      timeout: 25000,
-      maxBytes: 12 * 1024 * 1024,
-      headers: { ...BROWSER_HEADERS, Referer: referer },
-    });
+    const result = await fetchPageResilient(target, referer);
     if (result.statusCode === 404) {
       return apiError(res, 404, 'Page introuvable sur le site distant (404).');
     }
