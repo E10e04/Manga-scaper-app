@@ -16,7 +16,7 @@ const DB_VERSION = 1;
 
 let libraryMemoryMode = false;
 let imageMemoryMode = false;
-const mem = { mangas: new Map(), chapters: new Map(), images: new Map() };
+const mem = { images: new Map() };
 
 function openDb(name, stores) {
   return new Promise((resolve, reject) => {
@@ -31,7 +31,7 @@ function openDb(name, stores) {
         /* la requête peut ne pas encore avoir créé de base */
       }
       reject(new StorageError('Le stockage local ne répond pas. Vérifiez l’espace disponible puis relancez l’application.'));
-    }, 8000);
+    }, 3000);
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
@@ -78,9 +78,8 @@ function libDb() {
       { name: 'mangas', keyPath: 'id', indexes: [['sourceUrl', 'sourceUrl', true], ['updatedAt', 'updatedAt']] },
       { name: 'chapters', keyPath: 'id', indexes: [['mangaId', 'mangaId'], ['url', 'urlHash', true]] },
     ]).catch((err) => {
-      console.warn('[storage] fallback mémoire :', err.message);
+      console.warn('[storage] catalogue IndexedDB indisponible :', err.message);
       libraryMemoryMode = true;
-      libDbP = null;
       throw err;
     });
   }
@@ -162,35 +161,24 @@ export async function initStorage() {
 // --- Mangas ---
 
 export async function putManga(manga) {
-  if (libraryMemoryMode) {
-    mem.mangas.set(manga.id, manga);
-    return manga;
-  }
   const db = await libDb();
   await tx(db, 'mangas', 'readwrite', (s) => s.put(manga));
   return manga;
 }
 
 export async function getManga(id) {
-  if (libraryMemoryMode) return mem.mangas.get(id) || null;
   const db = await libDb();
   const t = db.transaction('mangas', 'readonly');
   return requestToPromise(t.objectStore('mangas').get(id)).catch(() => null);
 }
 
 export async function getAllMangas() {
-  if (libraryMemoryMode) return Array.from(mem.mangas.values());
   const db = await libDb();
   const t = db.transaction('mangas', 'readonly');
   return requestToPromise(t.objectStore('mangas').getAll());
 }
 
 export async function deleteManga(id) {
-  if (libraryMemoryMode) {
-    mem.mangas.delete(id);
-    for (const [cid, c] of mem.chapters) if (c.mangaId === id) mem.chapters.delete(cid);
-    return;
-  }
   const db = await libDb();
   await tx(db, 'mangas', 'readwrite', (s) => s.delete(id));
   const chapters = await getChaptersForManga(id);
@@ -201,10 +189,6 @@ export async function deleteManga(id) {
 
 export async function putChapter(chapter) {
   const record = { ...chapter, urlHash: chapter.url };
-  if (libraryMemoryMode) {
-    mem.chapters.set(chapter.id, record);
-    return record;
-  }
   const db = await libDb();
   // index unique sur url : retire un doublon éventuel avant insertion
   try {
@@ -220,10 +204,6 @@ export async function putChapter(chapter) {
 }
 
 export async function putChaptersBulk(chapters) {
-  if (libraryMemoryMode) {
-    chapters.forEach((c) => mem.chapters.set(c.id, { ...c, urlHash: c.url }));
-    return;
-  }
   const db = await libDb();
   await new Promise((resolve, reject) => {
     const t = db.transaction('chapters', 'readwrite');
@@ -236,36 +216,26 @@ export async function putChaptersBulk(chapters) {
 }
 
 export async function getChapter(id) {
-  if (libraryMemoryMode) return mem.chapters.get(id) || null;
   const db = await libDb();
   const t = db.transaction('chapters', 'readonly');
   return requestToPromise(t.objectStore('chapters').get(id)).catch(() => null);
 }
 
 export async function findChapterByUrl(url) {
-  if (libraryMemoryMode) {
-    for (const c of mem.chapters.values()) if (c.url === url) return c;
-    return null;
-  }
   const db = await libDb();
   const t = db.transaction('chapters', 'readonly');
   return requestToPromise(t.objectStore('chapters').index('url').get(url)).catch(() => null);
 }
 
 export async function getChaptersForManga(mangaId) {
-  if (libraryMemoryMode) return Array.from(mem.chapters.values()).filter((c) => c.mangaId === mangaId);
   const db = await libDb();
   const t = db.transaction('chapters', 'readonly');
   return requestToPromise(t.objectStore('chapters').index('mangaId').getAll(mangaId));
 }
 
 export async function deleteChapter(id, mangaId, alsoImages = true) {
-  if (libraryMemoryMode) {
-    mem.chapters.delete(id);
-  } else {
-    const db = await libDb();
-    await tx(db, 'chapters', 'readwrite', (s) => s.delete(id));
-  }
+  const db = await libDb();
+  await tx(db, 'chapters', 'readwrite', (s) => s.delete(id));
   if (alsoImages) await deleteChapterImages(id);
 }
 

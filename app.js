@@ -20,8 +20,9 @@ import { isValidHttpUrl, escapeHtml, formatBytes, timeAgo, debounce } from './sr
 
 const $app = document.getElementById('view');
 let currentReader = null;
-let libraryCache = []; // entrées enrichies (rafraîchies à chaque vue)
+let libraryCache = null; // null = jamais chargé ; [] = chargé et bibliothèque vide
 let downloadsStatusById = new Map();
+let libraryStorageErrorShown = false;
 
 // ---------------------------------------------------------------------------
 // Navigation chrome
@@ -415,7 +416,7 @@ async function viewStorage() {
       <p class="storage-total__lbl">utilisés${quota ? ` sur ${formatBytes(quota)} disponibles` : ''}</p>
     </div>
     ${Components.storageBar(quota, downloads, 'Téléchargements')}
-    ${isMemoryMode() ? `<p class="warn-note">⚠ IndexedDB indisponible : les données sont temporairement en mémoire et seront perdues à la fermeture.</p>` : ''}
+    ${isMemoryMode() ? `<p class="warn-note">⚠ Le catalogue n’est pas accessible : les modifications ne peuvent pas être enregistrées.</p>` : ''}
     <h2 class="section-title">Par manga</h2>
     <ul class="slist">${entries
       .filter((e) => e.downloaded > 0)
@@ -791,7 +792,17 @@ function openDownloadRangeModal(mangaId) {
 // ---------------------------------------------------------------------------
 
 async function loadLibrary() {
-  if (!libraryCache) libraryCache = await getLibraryEntries();
+  if (!libraryCache) {
+    try {
+      libraryCache = await getLibraryEntries();
+    } catch (err) {
+      libraryCache = [];
+      if (!libraryStorageErrorShown) {
+        libraryStorageErrorShown = true;
+        toastError(`Stockage du catalogue indisponible : ${humanizeError(err)}`);
+      }
+    }
+  }
   return libraryCache;
 }
 
@@ -804,12 +815,10 @@ export function invalidateLibrary() {
 // ---------------------------------------------------------------------------
 
 async function boot() {
-  const res = await initStorage();
-  if (res.memoryMode) {
-    toastWarning('Le catalogue ne peut pas être enregistré durablement sur cet appareil. Vérifiez l’espace et les paramètres de stockage.', 8000);
-  } else if (res.imageMemoryMode) {
-    toastWarning('Le catalogue est conservé, mais les images téléchargées ne le seront pas après fermeture.', 7000);
-  }
+  // Lance l'ouverture des bases en parallèle de l'interface. L'accueil et
+  // la navigation apparaissent tout de suite, même si le stockage Android
+  // prend quelques secondes à répondre.
+  const storageInit = initStorage();
 
   // Bouton global "+ Ajouter un manga"
   document.querySelectorAll('[data-open-add]').forEach((b) => b.addEventListener('click', () => openAddModal()));
@@ -847,6 +856,15 @@ async function boot() {
   Downloads.resume(); // reprend la file sauvegardée
   startRouter();
   setActiveNav(location.hash.replace(/^#/, '') || '/');
+
+  void storageInit.then((res) => {
+    if (res.memoryMode && !libraryStorageErrorShown) {
+      libraryStorageErrorShown = true;
+      toastError('Le catalogue n’est pas accessible : les modifications ne peuvent pas être enregistrées. Relance l’application pour réessayer.');
+    } else if (res.imageMemoryMode) {
+      toastWarning('Le catalogue est conservé, mais les images téléchargées ne le seront pas après fermeture.', 7000);
+    }
+  });
 
   // PWA
   if ('serviceWorker' in navigator && !window.Capacitor) {
