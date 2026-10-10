@@ -1,6 +1,6 @@
 {
   "name": "manga-reader",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Manga Reader — bibliothèque, lecteur et téléchargement hors ligne de mangas (Web / PWA / Android via Capacitor)",
   "type": "module",
   "main": "server.js",

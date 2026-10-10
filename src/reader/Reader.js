@@ -18,7 +18,10 @@ import { humanizeError } from '../utils/errors.js';
 import { escapeHtml } from '../utils/helpers.js';
 import { toast, toastError, toastSuccess, toastWarning } from '../ui/Toast.js';
 import { navigate } from '../ui/Router.js';
-import { registerPlugin } from '@capacitor/core';
+// Capacitor's ESM entry is copied into the web build by scripts/build.mjs.
+// Import it through a browser URL: this project ships native ES modules
+// directly and does not run a bundler to resolve bare package specifiers.
+import { registerPlugin } from '/node_modules/@capacitor/core/dist/index.js';
 import { isNativeApp } from '../utils/env.js';
 
 const PREFETCH = 2; // pages préchargées en avance, au maximum
