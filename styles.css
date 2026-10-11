@@ -421,7 +421,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 
 .synopsis p { color: var(--text-dim); max-width: 72ch; }
 
-.chapters__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.chapters__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); }
 .chapters__tools { display: flex; align-items: center; gap: var(--sp-3); }
 .chap-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; background: var(--bg-elev); }
 .chap {
@@ -438,6 +438,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .chap__title { color: var(--text-faint); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chap__side { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
 .chap__side .icon-btn { margin-inline-start: var(--sp-2); }
+.chap__remove { color: var(--err); }
 .chap-status { font-size: 12px; font-weight: 700; }
 .chap-status--read { color: var(--ok); display: inline-flex; align-items: center; gap: 4px; }
 .chap-status--read svg { width: 14px; height: 14px; }
@@ -450,6 +451,13 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
    ========================================================================== */
 
 .dlist, .hlist, .slist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.chap-list + #showMore { margin-top: var(--sp-3); }
+.offline-chapter-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.offline-manga { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius-m); padding: var(--sp-3) var(--sp-4); }
+.offline-manga__title { font-size: 16px; margin-bottom: var(--sp-2); }
+.offline-chapters { list-style: none; margin: 0; padding: 0; }
+.offline-chapter { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); border-top: 1px solid var(--line); }
+.offline-chapter__open { flex: 1; min-width: 0; min-height: 48px; padding: 8px 4px; border: 0; background: transparent; color: var(--text); text-align: left; }
 .ditem { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius-m); padding: var(--sp-4); position: relative; }
 .ditem__head { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); font-weight: 700; font-family: var(--font-display); margin-bottom: var(--sp-3); }
 .ditem__err { color: var(--err); font-size: 13px; margin-top: var(--sp-2); }

@@ -125,6 +125,9 @@ export function chapterRow(chapter, opts = {}) {
   const dl = chapter.downloaded
     ? `<span class="chap-dl" title="Disponible hors ligne">${icon('offline')}</span>`
     : '';
+  const downloadAction = chapter.downloaded
+    ? `<button class="icon-btn chap__remove" data-action="delete-chapter-download" data-chapter="${escapeHtml(chapter.id)}" aria-label="Supprimer le téléchargement du chapitre ${escapeHtml(String(num))}" title="Supprimer le téléchargement">${icon('trash')}</button>`
+    : `<button class="icon-btn" data-action="download-chapter" data-chapter="${escapeHtml(chapter.id)}" aria-label="Télécharger le chapitre ${escapeHtml(String(num))}" title="Télécharger">${icon('download')}</button>`;
   return `
   <li class="chap" data-chapter-id="${escapeHtml(chapter.id)}">
     <button class="chap__main" data-action="open-chapter" data-chapter="${escapeHtml(chapter.id)}">
@@ -133,7 +136,7 @@ export function chapterRow(chapter, opts = {}) {
     </button>
     <div class="chap__side">
       ${status}${dl}
-      <button class="icon-btn" data-action="download-chapter" data-chapter="${escapeHtml(chapter.id)}" aria-label="Télécharger le chapitre ${escapeHtml(String(num))}" title="Télécharger">${icon('download')}</button>
+      ${downloadAction}
     </div>
   </li>`;
 }

@@ -14,6 +14,7 @@ import * as store from './src/library/LibraryStorage.js';
 import { initStorage, isMemoryMode, estimateUsage, clearAllImages, purgeChapterDownloadsSafe } from './src/appStorageBridge.js';
 import { getProgress, recentReads } from './src/library/ReadingProgress.js';
 import * as Downloads from './src/downloads/DownloadManager.js';
+import { purgeChapterDownloads } from './src/downloads/OfflineStorage.js';
 import { Reader } from './src/reader/Reader.js';
 import { humanizeError } from './src/utils/errors.js';
 import { isValidHttpUrl, escapeHtml, formatBytes, timeAgo, debounce } from './src/utils/helpers.js';
@@ -311,9 +312,9 @@ async function viewManga({ id }) {
     </section>
   </div>`;
 
-  const shown = 60;
-  document.querySelector('#showMore')?.addEventListener('click', () => {
+  document.querySelector('#showMore')?.addEventListener('click', (event) => {
     document.querySelector('#chapList').innerHTML = stats.chapters.map((c) => Components.chapterRow(c)).join('');
+    event.currentTarget.remove();
   });
   document.querySelector('#selAll')?.addEventListener('change', (e) => {
     document.querySelectorAll('.chap input[type="checkbox"]').forEach((cb) => (cb.checked = e.target.checked));
@@ -360,16 +361,31 @@ async function viewDownloads() {
   <div class="page">
     <header class="page-head"><h1 class="page-title">Téléchargements</h1></header>
     <section id="dlActive"></section>
-    <section id="dlLibrary"><h2 class="section-title">${icon('offline')} Hors ligne</h2><div class="shelf" data-skeleton>${Components.skeletonGrid(4)}</div></section>
+    <section id="dlLibrary"><h2 class="section-title">${icon('offline')} Hors ligne</h2><div class="offline-chapter-list" data-skeleton>${Components.skeletonLines(4)}</div></section>
   </div>`;
   renderDownloadState(Downloads.getState());
   const entries = await loadLibrary();
   const offline = entries.filter((e) => e.downloaded > 0);
-  const shelf = document.querySelector('#dlLibrary .shelf');
-  if (shelf) {
-    shelf.innerHTML = offline.length
-      ? offline.map((e) => Components.mangaCard(e)).join('')
-      : Components.emptyState({ title: 'Aucun contenu hors ligne', text: 'Téléchargez des chapitres depuis la page d’un manga.' });
+  const list = document.querySelector('#dlLibrary .offline-chapter-list');
+  if (list) {
+    if (!offline.length) {
+      list.innerHTML = Components.emptyState({ title: 'Aucun contenu hors ligne', text: 'Téléchargez des chapitres depuis la page d’un manga.' });
+    } else {
+      const groups = await Promise.all(offline.map(async (entry) => {
+        const chapters = (await store.getChaptersForManga(entry.manga.id))
+          .filter((chapter) => chapter.downloaded)
+          .sort((a, b) => (b.number ?? -1) - (a.number ?? -1));
+        if (!chapters.length) return '';
+        return `<section class="offline-manga">
+          <h3 class="offline-manga__title">${escapeHtml(entry.manga.title)}</h3>
+          <ul class="offline-chapters">${chapters.map((chapter) => `<li class="offline-chapter">
+            <button class="offline-chapter__open" data-action="open-chapter" data-chapter="${escapeHtml(chapter.id)}">Chapitre ${escapeHtml(String(chapter.number ?? '?'))}</button>
+            <button class="icon-btn chap__remove" data-action="delete-chapter-download" data-chapter="${escapeHtml(chapter.id)}" aria-label="Supprimer le téléchargement du chapitre ${escapeHtml(String(chapter.number ?? '?'))}" title="Supprimer le téléchargement">${icon('trash')}</button>
+          </li>`).join('')}</ul>
+        </section>`;
+      }));
+      list.innerHTML = groups.join('') || Components.emptyState({ title: 'Aucun contenu hors ligne', text: 'Téléchargez des chapitres depuis la page d’un manga.' });
+    }
   }
 }
 
@@ -586,6 +602,24 @@ document.body.addEventListener('click', async (ev) => {
         if (!ch) return toastError('Chapitre introuvable.');
         await Downloads.enqueueChapter(ch);
         toastSuccess('Chapitre ajouté aux téléchargements');
+        return;
+      }
+      case 'delete-chapter-download': {
+        ev.stopPropagation();
+        const chapter = await store.getChapter(t.dataset.chapter);
+        if (!chapter?.downloaded) return toastWarning('Ce chapitre n’est plus téléchargé.');
+        const ok = await confirmDialog({
+          title: 'Supprimer ce téléchargement ?',
+          message: `Les fichiers hors ligne du chapitre ${chapter.number ?? '?'} seront supprimés. Le chapitre restera dans la bibliothèque.`,
+          confirmLabel: 'Supprimer',
+        });
+        if (!ok) return;
+        await purgeChapterDownloads(chapter.id);
+        await store.putChapter({ ...chapter, downloaded: false, downloadedAt: null });
+        libraryCache = null;
+        toastSuccess(`Téléchargement du chapitre ${chapter.number ?? '?'} supprimé`);
+        if (currentPath().startsWith('/manga/')) viewManga({ id: chapter.mangaId });
+        else viewDownloads();
         return;
       }
       case 'download-selected': {
