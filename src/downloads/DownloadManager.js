@@ -33,7 +33,8 @@ function loadQueue() {
   try {
     const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
     if (Array.isArray(raw)) {
-      queue = raw.filter((t) => t && t.id && t.chapterId);
+      // Les tâches terminées des anciennes versions ne doivent plus réapparaître.
+      queue = raw.filter((t) => t && t.id && t.chapterId && t.status !== 'done');
       // Les tâches "running" interrompues redeviennent "queued" (reprise)
       for (const t of queue) {
         if (t.status === 'running') t.status = 'queued';
@@ -186,13 +187,14 @@ async function pump() {
       }
       current = null;
       emit();
+      // Émet d'abord l'état final pour que l'interface puisse rafraîchir les
+      // chapitres hors ligne, puis retire immédiatement la tâche réussie.
+      if (next.status === 'done') {
+        queue = queue.filter((t) => t.id !== next.id);
+        emit();
+      }
       await sleep(150); // ménage la source entre chapitres
     }
-    // Nettoyage : retire les tâches terminées il y a plus de 30 s (garde l'historique récent visible)
-    setTimeout(() => {
-      queue = queue.filter((t) => !['done', 'cancelled'].includes(t.status) || Date.now() - (t.createdAt || 0) < 60_000);
-      emit();
-    }, 30_000);
   } finally {
     pumping = false;
   }

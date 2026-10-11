@@ -392,7 +392,7 @@ async function viewDownloads() {
 function renderDownloadState(state) {
   const host = document.getElementById('dlActive');
   if (!host) return;
-  const tasks = state.queue.filter((t) => !['done'].includes(t.status) || Date.now() - (t.createdAt || 0) < 60_000);
+  const tasks = state.queue.filter((t) => t.status !== 'done');
   if (!tasks.length && !state.current) {
     host.innerHTML = '';
     return;
