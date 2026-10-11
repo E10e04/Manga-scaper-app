@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-label="漫画">
-  <rect width="512" height="512" rx="112" fill="#ff5c3a"/>
-  <text x="256" y="271" text-anchor="middle" dominant-baseline="central"
-        fill="#fffaf4" font-family="Noto Sans JP, sans-serif" font-size="174" font-weight="900">漫画</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-label="漫">
+  <rect width="512" height="512" rx="112" fill="#ff7043"/>
+  <text x="256" y="256" text-anchor="middle" dominant-baseline="central"
+        fill="#080808" font-family="Noto Sans JP, sans-serif" font-size="300" font-weight="900">漫</text>
 </svg>

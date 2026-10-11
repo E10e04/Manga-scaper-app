@@ -97,7 +97,13 @@ function renderShelf(sel, items, cardFn, emptyTitle, emptyText, withAdd = false)
 // Vue : Bibliothèque
 // ---------------------------------------------------------------------------
 
+const LIBRARY_ORDER_KEY = 'manga-reader-library-order-v1';
 const libState = { query: '', filter: 'all', sort: 'recently-added' };
+
+function getLibraryOrder() {
+  try { return JSON.parse(localStorage.getItem(LIBRARY_ORDER_KEY) || '[]'); }
+  catch { return []; }
+}
 
 async function viewLibrary() {
   $app.innerHTML = `
@@ -116,6 +122,7 @@ async function viewLibrary() {
           <option value="title-desc">Titre Z → A</option>
           <option value="progress">Progression</option>
           <option value="chapters">Nombre de chapitres</option>
+          <option value="custom">Ordre personnalisé</option>
         </select>
         <div class="chips" role="group" aria-label="Filtres">
           ${[
@@ -169,6 +176,11 @@ async function viewLibrary() {
     let list = searchEntries(base, libState.query);
     list = filterEntries(list, libState.filter);
     list = sortEntries(list, libState.sort);
+    if (libState.sort === 'custom') {
+      const order = getLibraryOrder();
+      const positions = new Map(order.map((id, i) => [id, i]));
+      list.sort((a, b) => (positions.get(a.manga.id) ?? Infinity) - (positions.get(b.manga.id) ?? Infinity));
+    }
     const grid = document.querySelector('#libGrid');
     if (!grid) return;
     if (!base.length) {
@@ -185,7 +197,64 @@ async function viewLibrary() {
       return;
     }
     grid.innerHTML = list.map((e) => Components.mangaCard(e)).join('');
+    grid.classList.toggle('grid--reorderable', libState.sort === 'custom' && !libState.query && libState.filter === 'all');
+    if (grid.classList.contains('grid--reorderable')) enableLibraryReorder(grid);
   }
+}
+
+function enableLibraryReorder(grid) {
+  let holdTimer = 0;
+  let active = null;
+  let moved = false;
+  let suppressClick = false;
+  grid.addEventListener('pointerdown', (event) => {
+    const card = event.target.closest('.card[data-manga-id]');
+    if (!card || event.target.closest('button,a')) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    holdTimer = window.setTimeout(() => {
+      active = card;
+      moved = false;
+      suppressClick = true;
+      card.classList.add('card--dragging');
+      if (navigator.vibrate) navigator.vibrate(25);
+    }, 450);
+    const cancelHold = (moveEvent) => {
+      if (!active && (Math.abs(moveEvent.clientX - startX) > 9 || Math.abs(moveEvent.clientY - startY) > 9)) {
+        clearTimeout(holdTimer);
+        grid.removeEventListener('pointermove', cancelHold);
+      }
+    };
+    grid.addEventListener('pointermove', cancelHold);
+  });
+  grid.addEventListener('pointermove', (event) => {
+    if (!active) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.card[data-manga-id]');
+    if (!target || target === active || target.parentElement !== grid) return;
+    const rect = target.getBoundingClientRect();
+    const after = event.clientY > rect.top + rect.height / 2 || (Math.abs(event.clientY - rect.top - rect.height / 2) < rect.height / 3 && event.clientX > rect.left + rect.width / 2);
+    grid.insertBefore(active, after ? target.nextSibling : target);
+    moved = true;
+  });
+  const finish = () => {
+    clearTimeout(holdTimer);
+    if (!active) return;
+    active.classList.remove('card--dragging');
+    window.setTimeout(() => { suppressClick = false; }, 400);
+    if (moved) {
+      try { localStorage.setItem(LIBRARY_ORDER_KEY, JSON.stringify([...grid.querySelectorAll('.card[data-manga-id]')].map((card) => card.dataset.mangaId))); } catch {}
+      toastSuccess('Ordre de la bibliothèque enregistré');
+    }
+    active = null;
+  };
+  grid.addEventListener('pointerup', finish);
+  grid.addEventListener('pointercancel', finish);
+  grid.addEventListener('click', (event) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  });
 }
 
 // ---------------------------------------------------------------------------

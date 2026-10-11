@@ -323,6 +323,9 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
   cursor: pointer;
 }
 .card:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.grid--reorderable { touch-action: none; }
+.grid--reorderable .card { cursor: grab; }
+.grid--reorderable .card--dragging { opacity: .72; transform: scale(.97); outline: 2px solid var(--accent); cursor: grabbing; pointer-events: none; }
 .card__body { padding: var(--sp-3); }
 .card__title {
   font-size: 14.5px; font-weight: 700; line-height: 1.3;
@@ -434,6 +437,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .chap__num { font-weight: 700; font-family: var(--font-display); font-size: 14.5px; white-space: nowrap; }
 .chap__title { color: var(--text-faint); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chap__side { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.chap__side .icon-btn { margin-inline-start: var(--sp-2); }
 .chap-status { font-size: 12px; font-weight: 700; }
 .chap-status--read { color: var(--ok); display: inline-flex; align-items: center; gap: 4px; }
 .chap-status--read svg { width: 14px; height: 14px; }
