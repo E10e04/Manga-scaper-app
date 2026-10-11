@@ -5,11 +5,8 @@ import struct
 import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BG = (11, 13, 19, 255)
-PAPER = (244, 238, 231, 255)
+BG = (255, 92, 58, 255)
 PAPER_HI = (255, 250, 244, 255)
-INK = (23, 25, 34, 255)
-RED = (229, 83, 61, 255)
 
 
 def png_chunk(kind, data):
@@ -78,7 +75,7 @@ def render(size):
                 if (px + .5 - qx) ** 2 + (py + .5 - qy) ** 2 <= radius * radius:
                     blend(px, py, color)
 
-    # Rounded-square background, transparent outside the app icon silhouette.
+    # Rounded-square orange background, transparent outside the app icon silhouette.
     radius = 112 * scale
     for py in range(n):
         for px in range(n):
@@ -87,23 +84,24 @@ def render(size):
             if (px + .5 - qx) ** 2 + (py + .5 - qy) ** 2 <= radius * radius:
                 blend(px, py, BG)
 
-    ray = (244, 238, 231, 185)
-    for a, b, c, d, w in [
-        (49, 164, 158, 193, 12), (28, 230, 133, 245, 12), (42, 310, 142, 302, 12),
-        (462, 165, 354, 194, 12), (484, 230, 379, 245, 12), (469, 310, 370, 302, 12),
-        (90, 104, 169, 167, 8), (422, 104, 343, 167, 8),
-    ]:
-        line(a, b, c, d, w, ray)
-
-    circle(352, 157, 78, RED)
-    polygon([(113, 157), (173, 145), (222, 151), (256, 170), (256, 395), (229, 379), (171, 371), (113, 382)], PAPER)
-    polygon([(256, 170), (290, 151), (342, 145), (399, 157), (399, 382), (342, 371), (285, 379), (256, 395)], PAPER)
-    polygon([(127, 190), (168, 180), (238, 199), (238, 351), (171, 341), (127, 351)], PAPER_HI)
-    polygon([(274, 199), (343, 180), (385, 190), (385, 351), (341, 341), (274, 351)], PAPER_HI)
-    line(256, 170, 256, 392, 12, INK)
-    for y, width in [(233, 54), (254, 42), (275, 50), (296, 35)]:
-        line(155, y, 155 + width, y, 9, INK)
-    polygon([(291, 241), (345, 214), (327, 256), (359, 244), (293, 319), (308, 271), (276, 286)], RED)
+    # Readable, hand-built strokes for 読 (read) so launcher PNGs do not
+    # depend on whether a Japanese font is installed on the build machine.
+    strokes = [
+        # 言 (speech radical)
+        ((112, 117, 150, 101, 12), (82, 151, 208, 151, 13),
+         (101, 184, 189, 184, 12), (101, 213, 189, 213, 12),
+         (101, 245, 101, 325, 12), (101, 245, 191, 245, 12),
+         (191, 245, 191, 325, 12), (101, 325, 191, 325, 12)),
+        # 売 (sell), the right half of the character.
+        ((244, 119, 420, 119, 13), (330, 119, 330, 197, 13),
+         (257, 197, 405, 197, 13), (266, 239, 403, 239, 13),
+         (276, 239, 276, 270, 12), (393, 239, 393, 270, 12),
+         (314, 278, 287, 385, 13), (353, 278, 399, 353, 13),
+         (399, 353, 386, 386, 13)),
+    ]
+    for group in strokes:
+        for x1, y1, x2, y2, width in group:
+            line(x1, y1, x2, y2, width, PAPER_HI)
     # 2x supersampling keeps the small launcher icons smooth.
     out = bytearray(size * size * 4)
     for y in range(size):

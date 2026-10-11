@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="読 Manga Reader">
   <rect width="512" height="512" rx="112" fill="#ff5c3a"/>
-  <text x="256" y="273" text-anchor="middle" dominant-baseline="middle"
-        fill="#fffaf4" font-family="'Noto Sans CJK JP', 'Hiragino Sans', 'Yu Gothic', sans-serif"
-        font-size="250" font-weight="800">読</text>
-  <path d="M164 378h184" fill="none" stroke="#fffaf4" stroke-linecap="round" stroke-width="12" opacity=".8"/>
+  <path d="M112 117l38-16M82 151h126M101 184h88M101 213h88M101 245v80m0-80h90v80h-90
+           M244 119h176M330 119v78m-73 0h148M266 239h137m-127 0v31m117-31v31
+           M314 278l-27 107m66-107 46 75-13 33"
+        fill="none" stroke="#fffaf4" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
