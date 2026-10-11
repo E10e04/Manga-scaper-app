@@ -1,6 +1,6 @@
 {
   "name": "manga-reader",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Manga Reader — bibliothèque, lecteur et téléchargement hors ligne de mangas (Web / PWA / Android via Capacitor)",
   "type": "module",
   "main": "server.js",
@@ -18,7 +18,8 @@
     "@capacitor/core": "^6.1.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.1.2"
+    "@capacitor/cli": "^6.1.2",
+    "@resvg/resvg-js-cli": "^2.6.2-beta.1"
   },
   "engines": {
     "node": ">=18"
