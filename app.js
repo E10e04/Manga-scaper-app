@@ -314,13 +314,22 @@ async function viewManga({ id }) {
 
   document.querySelector('#showMore')?.addEventListener('click', (event) => {
     document.querySelector('#chapList').innerHTML = stats.chapters.map((c) => Components.chapterRow(c)).join('');
+    addChapterSelectionBoxes(document.querySelector('#chapList'));
+    if (document.querySelector('#selAll')?.checked) {
+      document.querySelectorAll('#chapList .chap__check').forEach((box) => { box.checked = true; });
+    }
     event.currentTarget.remove();
   });
   document.querySelector('#selAll')?.addEventListener('change', (e) => {
     document.querySelectorAll('.chap input[type="checkbox"]').forEach((cb) => (cb.checked = e.target.checked));
   });
-  // ajoute les checkboxes de sélection sur chaque ligne
-  document.querySelectorAll('.chap').forEach((li) => {
+  addChapterSelectionBoxes(document.querySelector('#chapList'));
+}
+
+function addChapterSelectionBoxes(list) {
+  // Ajoute les cases sans doublonner celles déjà présentes.
+  list?.querySelectorAll('.chap').forEach((li) => {
+    if (li.querySelector('.chap__check')) return;
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.className = 'chap__check';
@@ -359,7 +368,11 @@ function destroyReader() {
 async function viewDownloads() {
   $app.innerHTML = `
   <div class="page">
-    <header class="page-head"><h1 class="page-title">Téléchargements</h1></header>
+    <header class="page-head page-head--downloads"><h1 class="page-title">Téléchargements</h1><div class="download-tools" id="offlineTools" hidden>
+      <label class="check"><input type="checkbox" id="offlineSelectAll"> <span>Tout sélectionner</span></label>
+      <button class="btn btn--sm btn--danger-ghost" data-action="delete-selected-downloads">Supprimer la sélection</button>
+      <button class="btn btn--sm btn--ghost" data-action="delete-download-range">Supprimer une plage</button>
+    </div></header>
     <section id="dlActive"></section>
     <section id="dlLibrary"><h2 class="section-title">${icon('offline')} Hors ligne</h2><div class="offline-chapter-list" data-skeleton>${Components.skeletonLines(4)}</div></section>
   </div>`;
@@ -379,12 +392,18 @@ async function viewDownloads() {
         return `<section class="offline-manga">
           <h3 class="offline-manga__title">${escapeHtml(entry.manga.title)}</h3>
           <ul class="offline-chapters">${chapters.map((chapter) => `<li class="offline-chapter">
+            <input class="offline-chapter__check" type="checkbox" data-chapter="${escapeHtml(chapter.id)}" aria-label="Sélectionner le chapitre ${escapeHtml(String(chapter.number ?? '?'))} de ${escapeHtml(entry.manga.title)}">
             <button class="offline-chapter__open" data-action="open-chapter" data-chapter="${escapeHtml(chapter.id)}">Chapitre ${escapeHtml(String(chapter.number ?? '?'))}</button>
             <button class="icon-btn chap__remove" data-action="delete-chapter-download" data-chapter="${escapeHtml(chapter.id)}" aria-label="Supprimer le téléchargement du chapitre ${escapeHtml(String(chapter.number ?? '?'))}" title="Supprimer le téléchargement">${icon('trash')}</button>
           </li>`).join('')}</ul>
         </section>`;
       }));
       list.innerHTML = groups.join('') || Components.emptyState({ title: 'Aucun contenu hors ligne', text: 'Téléchargez des chapitres depuis la page d’un manga.' });
+      const tools = document.querySelector('#offlineTools');
+      if (tools) tools.hidden = !groups.some(Boolean);
+      document.querySelector('#offlineSelectAll')?.addEventListener('change', (event) => {
+        list.querySelectorAll('.offline-chapter__check').forEach((box) => { box.checked = event.target.checked; });
+      });
     }
   }
 }
@@ -620,6 +639,19 @@ document.body.addEventListener('click', async (ev) => {
         toastSuccess(`Téléchargement du chapitre ${chapter.number ?? '?'} supprimé`);
         if (currentPath().startsWith('/manga/')) viewManga({ id: chapter.mangaId });
         else viewDownloads();
+        return;
+      }
+      case 'delete-selected-downloads': {
+        const ids = Array.from(document.querySelectorAll('.offline-chapter__check:checked')).map((box) => box.dataset.chapter);
+        if (!ids.length) return toastWarning('Sélectionnez au moins un chapitre.');
+        const chapters = (await Promise.all(ids.map((id) => store.getChapter(id)))).filter((chapter) => chapter?.downloaded);
+        await deleteOfflineChapters(chapters);
+        return;
+      }
+      case 'delete-download-range': {
+        const entries = await loadLibrary();
+        const offlineEntries = entries.filter((entry) => entry.downloaded > 0);
+        openDeleteDownloadRangeModal(offlineEntries);
         return;
       }
       case 'download-selected': {
@@ -889,6 +921,62 @@ function openDownloadRangeModal(mangaId) {
     })
   );
   return modal;
+}
+
+async function deleteOfflineChapters(chapters) {
+  if (!chapters.length) return toastWarning('Aucun téléchargement disponible dans cette sélection.');
+  const ok = await confirmDialog({
+    title: `Supprimer ${chapters.length} téléchargement${chapters.length > 1 ? 's' : ''} ?`,
+    message: 'Les fichiers hors ligne seront supprimés. Les chapitres resteront dans la bibliothèque.',
+    confirmLabel: 'Tout supprimer',
+  });
+  if (!ok) return;
+  for (const chapter of chapters) {
+    await purgeChapterDownloads(chapter.id);
+    await store.putChapter({ ...chapter, downloaded: false, downloadedAt: null });
+  }
+  libraryCache = null;
+  toastSuccess(`${chapters.length} téléchargement${chapters.length > 1 ? 's' : ''} supprimé${chapters.length > 1 ? 's' : ''}`);
+  viewDownloads();
+}
+
+function openDeleteDownloadRangeModal(entries) {
+  const div = document.createElement('div');
+  div.innerHTML = `
+    <p class="modal-intro">Choisissez un manga et la plage de chapitres à retirer du stockage hors ligne.</p>
+    <label class="range-manga-label">Manga
+      <select id="rangeManga" class="select">
+        ${entries.map((entry) => `<option value="${escapeHtml(entry.manga.id)}">${escapeHtml(entry.manga.title)}</option>`).join('')}
+      </select>
+    </label>
+    <div class="range-row">
+      <label>Depuis le chapitre <input type="number" id="fromNum" step="any" placeholder="ex. 120" class="input-num"></label>
+      <label>jusqu’au <input type="number" id="toNum" step="any" placeholder="ex. 150" class="input-num"></label>
+    </div>`;
+  let rangeModal;
+  rangeModal = openModal({
+    title: 'Supprimer des téléchargements',
+    content: div,
+    actions: [
+      { label: 'Annuler', kind: 'ghost', onClick: () => {} },
+      {
+        label: 'Supprimer la plage', kind: 'danger', onClick: async () => {
+          const mangaId = div.querySelector('#rangeManga').value;
+          const fromValue = div.querySelector('#fromNum').value.trim();
+          const toValue = div.querySelector('#toNum').value.trim();
+          const from = fromValue ? Number(fromValue) : -Infinity;
+          const to = toValue ? Number(toValue) : Infinity;
+          if (from > to) return toastWarning('Le premier chapitre doit être inférieur ou égal au dernier.');
+          const chapters = (await store.getChaptersForManga(mangaId))
+            .filter((chapter) => chapter.downloaded && (chapter.number ?? 0) >= from && (chapter.number ?? 0) <= to);
+          if (!chapters.length) return toastWarning('Aucun téléchargement dans cette plage.');
+          rangeModal.close();
+          await deleteOfflineChapters(chapters);
+          return false;
+        },
+      },
+    ],
+  });
 }
 
 // ---------------------------------------------------------------------------

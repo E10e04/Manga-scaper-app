@@ -54,10 +54,19 @@ export class Reader {
     this.lastScrollTop = 0;
     this.lastVisible = 1;
     this.destroyed = false;
+    this.pinchState = null;
+    this.touchPan = null;
+    this.mousePan = null;
     this._onScroll = this._onScroll.bind(this);
     this._onKey = this._onKey.bind(this);
     this._onVis = this._onVis.bind(this);
     this._onSettings = this._onSettings.bind(this);
+    this._onTouchStart = this._onTouchStart.bind(this);
+    this._onTouchMove = this._onTouchMove.bind(this);
+    this._onTouchEnd = this._onTouchEnd.bind(this);
+    this._onPointerDown = this._onPointerDown.bind(this);
+    this._onPointerMove = this._onPointerMove.bind(this);
+    this._onPointerEnd = this._onPointerEnd.bind(this);
   }
 
   async mount() {
@@ -118,6 +127,14 @@ export class Reader {
       this.toggleUi();
     });
     this.el.scroll.addEventListener('scroll', this._onScroll, { passive: true });
+    this.el.scroll.addEventListener('touchstart', this._onTouchStart, { passive: false });
+    this.el.scroll.addEventListener('touchmove', this._onTouchMove, { passive: false });
+    this.el.scroll.addEventListener('touchend', this._onTouchEnd, { passive: true });
+    this.el.scroll.addEventListener('touchcancel', this._onTouchEnd, { passive: true });
+    this.el.scroll.addEventListener('pointerdown', this._onPointerDown);
+    this.el.scroll.addEventListener('pointermove', this._onPointerMove);
+    this.el.scroll.addEventListener('pointerup', this._onPointerEnd);
+    this.el.scroll.addEventListener('pointercancel', this._onPointerEnd);
     this.lastScrollTop = this.el.scroll.scrollTop;
     this.host.querySelector('#rdBack').addEventListener('click', () => this.close());
     this.host.querySelector('#rdDownload').addEventListener('click', () => this.downloadCurrent());
@@ -346,6 +363,76 @@ export class Reader {
     this.prefetchTimer = null;
   }
 
+  _onTouchStart(event) {
+    if (event.touches.length >= 2) {
+      event.preventDefault();
+      const [a, b] = event.touches;
+      const midX = (a.clientX + b.clientX) / 2;
+      const midY = (a.clientY + b.clientY) / 2;
+      const rect = this.el.scroll.getBoundingClientRect();
+      const zoom = getSettings().zoom / 100;
+      this.pinchState = {
+        distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        zoom,
+        midX: midX - rect.left,
+        midY: midY - rect.top,
+        contentX: (this.el.scroll.scrollLeft + midX - rect.left) / zoom,
+        contentY: (this.el.scroll.scrollTop + midY - rect.top) / zoom,
+      };
+      this.touchPan = null;
+    } else if (event.touches.length === 1 && getSettings().zoom > 100) {
+      const touch = event.touches[0];
+      this.touchPan = { x: touch.clientX, y: touch.clientY };
+    }
+  }
+
+  _onTouchMove(event) {
+    if (event.touches.length >= 2 && this.pinchState) {
+      event.preventDefault();
+      const [a, b] = event.touches;
+      const rect = this.el.scroll.getBoundingClientRect();
+      const state = this.pinchState;
+      const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const nextZoom = Math.max(0.5, Math.min(3, state.zoom * distance / Math.max(1, state.distance)));
+      const midX = (a.clientX + b.clientX) / 2 - rect.left;
+      const midY = (a.clientY + b.clientY) / 2 - rect.top;
+      setSetting('zoom', Math.round(nextZoom * 100));
+      this.el.scroll.scrollLeft = state.contentX * nextZoom - midX;
+      this.el.scroll.scrollTop = state.contentY * nextZoom - midY;
+    } else if (event.touches.length === 1 && this.touchPan && getSettings().zoom > 100) {
+      event.preventDefault();
+      const touch = event.touches[0];
+      this.el.scroll.scrollLeft -= touch.clientX - this.touchPan.x;
+      this.el.scroll.scrollTop -= touch.clientY - this.touchPan.y;
+      this.touchPan = { x: touch.clientX, y: touch.clientY };
+    }
+  }
+
+  _onTouchEnd(event) {
+    if (event.touches.length < 2) this.pinchState = null;
+    if (!event.touches.length) this.touchPan = null;
+    else if (event.touches.length === 1 && getSettings().zoom > 100) {
+      this.touchPan = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    }
+  }
+
+  _onPointerDown(event) {
+    if (event.pointerType !== 'mouse' || getSettings().zoom <= 100 || event.button !== 0) return;
+    this.mousePan = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    this.el.scroll.setPointerCapture(event.pointerId);
+  }
+
+  _onPointerMove(event) {
+    if (!this.mousePan || event.pointerId !== this.mousePan.id) return;
+    this.el.scroll.scrollLeft -= event.clientX - this.mousePan.x;
+    this.el.scroll.scrollTop -= event.clientY - this.mousePan.y;
+    this.mousePan = { ...this.mousePan, x: event.clientX, y: event.clientY };
+  }
+
+  _onPointerEnd(event) {
+    if (this.mousePan?.id === event.pointerId) this.mousePan = null;
+  }
+
   _onScroll() {
     this.lastScrollAt = Date.now();
     clearTimeout(this.saveTimer);
@@ -514,7 +601,7 @@ export class Reader {
       </div>
       <div class="rs-row">
         <label for="rsZoom">Zoom</label>
-        <div class="rs-control"><input type="range" id="rsZoom" min="50" max="200" step="5" value="${s.zoom}"><output>${s.zoom}%</output></div>
+        <div class="rs-control"><input type="range" id="rsZoom" min="50" max="300" step="5" value="${s.zoom}"><output>${s.zoom}%</output></div>
       </div>
       <div class="rs-row rs-row--switches">
         <label><input type="checkbox" id="rsFull" ${s.fullwidth ? 'checked' : ''}> Pleine largeur</label>
@@ -573,6 +660,12 @@ export class Reader {
     root.style.setProperty('--page-max', s.fullwidth ? '100%' : `${s.maxWidth}px`);
     root.style.setProperty('--page-gap', `${s.gap}px`);
     root.style.setProperty('--page-zoom', String(s.zoom / 100));
+    this.el.scroll.style.touchAction = s.zoom > 100 ? 'none' : 'pan-y';
+    const zoomInput = this.el.settingsPanel.querySelector('#rsZoom');
+    if (zoomInput) {
+      zoomInput.value = String(s.zoom);
+      zoomInput.nextElementSibling.value = `${s.zoom}%`;
+    }
     root.classList.toggle('fit-original', s.fitMode === 'original');
     if (!s.showUi) this.toggleUi(false);
     else this.toggleUi(true);
@@ -620,6 +713,14 @@ export class Reader {
     document.removeEventListener('keydown', this._onKey);
     document.removeEventListener('visibilitychange', this._onVis);
     window.removeEventListener('reader-settings-changed', this._onSettings);
+    this.el.scroll.removeEventListener('touchstart', this._onTouchStart);
+    this.el.scroll.removeEventListener('touchmove', this._onTouchMove);
+    this.el.scroll.removeEventListener('touchend', this._onTouchEnd);
+    this.el.scroll.removeEventListener('touchcancel', this._onTouchEnd);
+    this.el.scroll.removeEventListener('pointerdown', this._onPointerDown);
+    this.el.scroll.removeEventListener('pointermove', this._onPointerMove);
+    this.el.scroll.removeEventListener('pointerup', this._onPointerEnd);
+    this.el.scroll.removeEventListener('pointercancel', this._onPointerEnd);
     if (this.chapter) releaseChapterUrls(this.chapter.id);
     document.title = 'Manga Reader';
   }

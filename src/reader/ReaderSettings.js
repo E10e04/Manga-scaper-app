@@ -24,7 +24,7 @@ export function getSettings() {
       // Validation stricte des valeurs
       cache.maxWidth = clamp(cache.maxWidth, 360, 1600, DEFAULT_SETTINGS.maxWidth);
       cache.gap = clamp(cache.gap, 0, 48, DEFAULT_SETTINGS.gap);
-      cache.zoom = clamp(cache.zoom, 50, 200, 100);
+      cache.zoom = clamp(cache.zoom, 50, 300, 100);
       if (!['width', 'original'].includes(cache.fitMode)) cache.fitMode = 'width';
       ['fullwidth', 'showUi', 'autoHideControls', 'fullscreen'].forEach((k) => {
         cache[k] = !!cache[k];

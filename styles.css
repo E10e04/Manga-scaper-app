@@ -213,6 +213,9 @@ button { font: inherit; cursor: pointer; }
 .section-title .icon svg { width: 17px; height: 17px; stroke: var(--accent); }
 
 .page-head { padding: var(--sp-4) 0 var(--sp-2); }
+.page-head--downloads { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.download-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.download-tools[hidden] { display: none; }
 
 /* ==========================================================================
    Boutons, chips, badges
@@ -457,6 +460,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .offline-manga__title { font-size: 16px; margin-bottom: var(--sp-2); }
 .offline-chapters { list-style: none; margin: 0; padding: 0; }
 .offline-chapter { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); border-top: 1px solid var(--line); }
+.offline-chapter__check { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
 .offline-chapter__open { flex: 1; min-width: 0; min-height: 48px; padding: 8px 4px; border: 0; background: transparent; color: var(--text); text-align: left; }
 .ditem { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius-m); padding: var(--sp-4); position: relative; }
 .ditem__head { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); font-weight: 700; font-family: var(--font-display); margin-bottom: var(--sp-3); }
@@ -514,15 +518,17 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0;
 .reader__actions { display: flex; align-items: center; gap: var(--sp-2); }
 .reader__pager { font-variant-numeric: tabular-nums; color: var(--text-dim); font-weight: 700; font-size: 13.5px; padding: 4px 10px; background: var(--bg-elev); border-radius: 99px; border: 1px solid var(--line); }
 
-.reader__scroll { flex: 1; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; }
+.reader__scroll { flex: 1; overflow: auto; scroll-behavior: smooth; overscroll-behavior: contain; }
 .reader__pages {
   display: flex; flex-direction: column; align-items: center;
   gap: var(--page-gap);
   padding: var(--sp-2) var(--sp-2) 30vh;
+  min-width: 100%;
   zoom: var(--page-zoom);
 }
 .page-slot { width: min(100%, var(--page-max)); background: var(--bg-elev); border-radius: 4px; overflow: hidden; position: relative; min-height: 40vh; }
 .page-slot img.page-img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity .35s ease; }
+.page-slot img.page-img { -webkit-user-drag: none; user-select: none; }
 .page-slot.is-loaded img { opacity: 1; }
 .fit-original .page-slot img.page-img { width: auto; max-width: none; }
 .fit-original .page-slot { width: auto; max-width: 100%; }
